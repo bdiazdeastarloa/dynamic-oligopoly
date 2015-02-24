@@ -5,8 +5,10 @@
  * Based on original code for Windows by Uli Doraszelski, Feb 2006. 
  * 
  * Extended and edited for Mac/Linux by Bernardo Diaz de Astarloa, 
- * Jan 2015 @ Penn State.
- * ----------------------------------------------------------------------*/
+ * Jan 2015 @ Penn State. 
+ *
+ * Extension includes GSL libraries to compute pricing policies in a FOC.
+ * --------------------------------------------------------------------- */
 
 
 #include "mex.h"
