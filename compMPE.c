@@ -171,44 +171,44 @@ void copy(double *, const double *);
 /********************************************************************************/
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
-    const char *methods[3] = {"GaussJacobiIteration", "GaussSeidelIteration", ""};
+    	const char *methods[3] = {"GaussJacobiIteration", "GaussSeidelIteration", ""};
 	time_t start_time, stop_time;
 	double elapsed;
 
 	/* Check for proper number (and type) of arguments. */	
-    if (nrhs != 1)
+    	if (nrhs != 1)
 	    mexErrMsgTxt("One input argument required."); 
-    if ((!mxIsChar(prhs[0])) || mxIsEmpty(prhs[0]))
+    	if ((!mxIsChar(prhs[0])) || mxIsEmpty(prhs[0]))
 	    mexErrMsgTxt("Input argument must be a nonempty string."); 
-    if (nlhs > 0)
+    	if (nlhs > 0)
 	    mexErrMsgTxt("No output arguments allowed."); 
 
 
 	/* Obtain name of MAT-file. */
 	mxGetString(prhs[0], matfile, STRLEN);
     
-    /* Initialize. */
-    init();
+    	/* Initialize. */
+    	init();
     
-    /* Starting time. */
-    time(&start_time);
-    mexPrintf("\nStarting time is %s", ctime(&start_time));
+    	/* Starting time. */
+    	time(&start_time);
+    	mexPrintf("\nStarting time is %s", ctime(&start_time));
 
-    /* Call value function iteration routine. */
-    switch (match(methods, method)) {
-    case 0:
-        mexErrMsgTxt("Gauss-Jacobi not implemented separately."); break;
-    case 1:
-        iterGS(); break;
-    default:
+    	/* Call value function iteration routine. */
+    	switch (match(methods, method)) {
+    	case 0:
+            mexErrMsgTxt("Gauss-Jacobi not implemented separately."); break;
+    	case 1:
+            iterGS(); break;
+    	default:
 	    mexErrMsgTxt("Iteration method not recognized."); break;
 	}
 
-    /* Stopping time. */
-    time(&stop_time);
-    mexPrintf("\nStopping time is %s", ctime(&stop_time));
-    elapsed = difftime(stop_time, start_time);
-    mexPrintf("Elapsed time is %f min.\n", elapsed/60.0);
+    	/* Stopping time. */
+    	time(&stop_time);
+    	mexPrintf("\nStopping time is %s", ctime(&stop_time));
+    	elapsed = difftime(stop_time, start_time);
+    	mexPrintf("Elapsed time is %f min.\n", elapsed/60.0);
 
 	/* Clean up (write back to MAT-file). */
 	cleanup();
