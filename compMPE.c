@@ -5,18 +5,10 @@
  * Based on original code for Windows by Uli Doraszelski, Feb 2006. 
  * 
  * Extended and edited for Mac/Linux by Bernardo Diaz de Astarloa, 
-<<<<<<< Updated upstream
- * Jan 2015 @ Penn State. 
- *
- * Extension includes GSL libraries to compute pricing policies in a FOC.
- * --------------------------------------------------------------------- */
-=======
  * Jan 2015 @ Penn State.
  * 
  * Extension includes GSL libraries for pricing policies using FOCs. 
  * ----------------------------------------------------------------------*/
->>>>>>> Stashed changes
-
 
 #include "mex.h"
 #include "matrix.h"
@@ -78,7 +70,6 @@ double alpha2;                              /* Transition rates: Incumbent produ
 double eta1;				    /* Transition rates: Incumbent lbd. */
 double eta2;				    /* Transition rates: Incumbent lbd. */
 double etax1;                               /* Transition rates: Incumbent exit. */
-<<<<<<< Updated upstream
 /* double etax2; */                         /* Transition rates: Incumbent exit (exponential spec). */
 double etae1;				    /* Transition rates: Potential entrant entry. */
 /* double etae2; */		            /* Transition rates: Potential entrant entry (exponential spec). */
@@ -97,26 +88,6 @@ mxArray *info_ptr; double *info;	    /* Program control: Performance information
 
 mxArray *V0_ptr; double *V0;		    /* Starting values: Value function. */
 mxArray *x0_ptr; double *x0;		    /* Starting values: Investment policy. */
-=======
-double etax2;                               /* Transition rates: Incumbent exit (exponential spec). */
-double etae1;								/* Transition rates: Potential entrant entry. */
-double etae2;								/* Transition rates: Potential entrant entry (exponential spec). */
-unsigned char ie0;							/* Transition rates and initial state: Potential entrant. */
-
-char matfile[STRLEN];						/* Program control: MAT-file name. */
-char method[STRLEN];						/* Program control: Iteration method. */
-int maxiter;								/* Program control: Maximum number of iterations. */
-double tol;									/* Program control: Tolerance. */
-int steps;									/* Program control: Number of steps in modified policy iteration. */
-double lambdaV;								/* Program control: Weight of updated value function. */
-double lambdax;								/* Program control: Weight of updated investment policy. */
-double lambdap;								/* Program control: Weight of updated pricing policy. */
-double lambday;								/* Program control: Weight of updated entry/exit policy. */
-mxArray *info_ptr; double *info_;			/* Program control: Performance information. */
-
-mxArray *V0_ptr; double *V0;				/* Starting values: Value function. */
-mxArray *x0_ptr; double *x0;				/* Starting values: Investment policy. */
->>>>>>> Stashed changes
 mxArray *p0_ptr; double *p0;                /* Starting values: Pricing policy. */
 mxArray *z0_ptr; double *z0;		    /* Starting values: Exit/entry policy. */
 
