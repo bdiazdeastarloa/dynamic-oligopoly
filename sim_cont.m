@@ -1,206 +1,340 @@
-function [nf,times_c,ind_c,exit_c,entry_c,fprod_c,pij_c,price_c,p0_c,q0_c,mgc_c,quant_c,reve_c,ecostj_c,scrapj_c,ecost_c,scrap_c,csurplus_c,aggprof_c,nfirms_c,flag] = sim_cont(par,T,P,E,X,wstart,w0start,sim)
+function out = sim_cont(par,P,X,Y,di,draws,T,sim)
 
 % =========================================================================
-% Function: sim_cont
-%
-% Simulates arrival times and state jumps of the continuous time model
-% during [0,T];
-% Inputs are: the parameter structure, the number of periods (T), policy 
-% functions (prices, entry, exit), and the initial industry structure (w0). 
+% Dynamic oligopoly.
+% Continuous time version.
 % 
-% Written by BDA @ PSU July 2014
+% sim_cont:
+% - simulates arrival times and state jumps of the continuous time model.
+% - inputs are: parameter structure, # of periods (T), policy 
+%   functions (P, X, Y), and the initial state (w0,common0). 
+% 
+% Written by Bernardo Diaz de Astarloa @ PSU 2014
 % =========================================================================
 
-draws1 = par.randset1(:,sim);
-draws2 = par.randset2(:,sim);
-draws3 = par.randset3(:,sim);
-I      = eye(par.p0_size);            % identity for transition prob
-Q      = par.Q/par.gamma;             % p0 transition matrix
+N = par.N;
+M = par.M;
+D = par.D;
+p0size = par.p0size;
+p0vec  = par.p0vec;
+mkt    = par.mkt;
+mgc    = par.mgc;
+Q      = par.trans/par.gamma;      % aggregate state transition matrix
+F = N*2;                           % max number of firms in history
+TT = T*15;                         % max number of jumps in history
+drw1 = draws.any(:,sim);
+drw2 = draws.ind(:,sim);
+drw3 = draws.out(:,sim);
 
-times_c = zeros(T*20,1);             % arrival times
-ind_c   = zeros(T*20,par.nfirms+1);  % industry structures        
-exit_c  = zeros(T*20,1);             % exit events
-entry_c = zeros(T*20,1);             % entry events
-fprod_c  = zeros(T*20,20);           % firms' productivities
-price_c = zeros(T*20,20);            % firms' prices
-p0_c    = zeros(T*20,1);             % outside good price
-q0_c    = zeros(T*20,1);             % outside good quantity
-quant_c = zeros(T*20,20);            % firms' quantities
-reve_c  = zeros(T*20,20);            % firms' revenues
-mgc_c   = zeros(T*20,20);            % firms' marginal cost
-pij_c   = zeros(T*20,20);            % firms' profits
-ecostj_c = zeros(T*20,20);        
-scrapj_c = zeros(T*20,20);
-ecost_c  = zeros(T*20,1);            % entry costs
-scrap_c  = zeros(T*20,1);            % exit scrap values
-csurplus_c = zeros(T*20,1);          % consumer surplus
-aggprof_c  = zeros(T*20,1);          % aggregate profits
-nfirms_c = zeros(T*20,1);            % number of active firms
+times_c = zeros(TT,1);             % arrival times
+fprod_c = zeros(TT,F);             % firms' productivities
+p_c     = zeros(TT,F);             % firms' prices
+x_c     = zeros(TT,F);             % firms' investment
+exit_c  = zeros(TT,1);             % exit events
+entry_c = zeros(TT,1);             % entry events
+p0_c    = zeros(TT,1);             % outside good price
+q0_c    = zeros(TT,1);             % outside good quantity
+d_c     = zeros(TT,1);             % outside good price
+q_c     = zeros(TT,F);             % firms' quantities
+rev_c   = zeros(TT,F);             % f irms' revenues
+mgc_c   = zeros(TT,F);             % firms' marginal cost
+pij_c   = zeros(TT,F);             % firms' profits
+ecostj_c = zeros(TT,F);        
+scrapj_c = zeros(TT,F);
+ecost_c  = zeros(TT,1);            % entry costs
+scrap_c  = zeros(TT,1);            % exit scrap values
+cs_c     = zeros(TT,1);            % consumer surplus
+ps_c     = zeros(TT,1);            % aggregate profits
+nf_c     = zeros(TT,1);            % # active firms
+rdshock  = zeros(TT,F);            % keep track of r&d shocks
+lbdshock = zeros(TT,F);            % keep track of lbd shocks
 
-locw  = wstart;                      % initial industry structure            
-w0 = w0start;
-in = (locw>0);                       % index of active firms
-j  = sum(in);
+% Set initial state.
+in  = (di(2:end)<M+1);             % index of incumbents
+j   = sum(in);                     % # active firms
+w   = encode(di,par.binom,N,D);       
+d0  = di(1);
+d   = ceil(d0/p0size);
+p0  = d0 - (d-1)*p0size;
+d   = mkt(d);
+p0  = p0vec(p0);
+
+% Assign policies.
+p   = P(:,w);
+x   = X(:,w);
+y   = Y(:,w);
+
+% Compute profits, quantities and surplus.
+[pr,q,q0] = profits(par,di(2:sum(in)+1),p(in),p0,d);
+cs        = surplus(par,p(in),p0,d);
+rev       = p(in).*q;
+ps        = sum(pr);
+
+% Compute hazards of jumps.
+[hj,sh] = hazz(par,di,q,x,y);
+
+% Initialize jumps #.
+n = 1;                            
+nextdi = di;
+
+% Firms' positions.
+id = zeros(N,1);
+id(1:j) = (1:1:j);
+% Start active firms counter (all firms ever present).
 nf = j;
-w  = qencode(par,locw);              % encoded ind structure
-w  = w + par.dostates*(w0-1);        % state position
-p0 = par.p0vec(w0);
 
-price = P(w,in);
-ex    = X(w,in);
-en    = E(w,:);
-[h1,h2,h3,h4,h] = hazz(par,locw,price,p0,ex,en);
-[Pi,q,q0] = profits(par,locw(in),price',p0);
-csurp   = surplus(par,price,p0);
-rev     = price'.*q;
-aggprof = sum(Pi);
-n = 1;                                % first "jump" is initial state
-nextw = locw;
-
-% Record initial state
-ind_c(n,:)    = [w0 nextw'];          % industry structure
-csurplus_c(n) = csurp;                % consumer surplus
-aggprof_c(n)  = aggprof;              % aggregate profits
-nfirms_c(n)   = j;                    % # of active firms
+% Record initial state.
+cs_c(n) = cs;                
+ps_c(n) = ps;                
+nf_c(n) = j;                
 p0_c(n) = p0;
 q0_c(n) = q0;
-id = zeros(par.nfirms,1);             % firms' positions
-id(1:j) = (1:1:j);
+d_c(n)  = d;
+nf_c(n) = j;
 
-% Firm-specific values
-for ff=1:j
-    fprod_c(n,id(ff))  = nextw(ff);                % productivity
-    price_c(n,id(ff)) = price(ff);                 % price
-    quant_c(n,id(ff)) = q(ff);                     % quantitiy sold
-    reve_c(n,id(ff))  = rev(ff);
-    pij_c(n,id(ff))   = Pi(ff);                    % profits
-    mgc_c(n,id(ff))   = par.mgc(nextw(ff));        % marginal cost
-end
+% Store firm-specific values.
+fprod_c(n,id(1:j)) = nextdi(2:j+1);              % productivity
+p_c(n,id(1:j)) = p(1:j);                         % price
+x_c(n,id(1:j)) = x(1:j);                         % price
+q_c(n,id(1:j)) = q(1:j);                         % quantitiy sold
+rev_c(n,id(1:j)) = rev(1:j);
+pij_c(n,id(1:j)) = pr(1:j);                      % profits
+mgc_c(n,id(1:j)) = mgc(nextdi(2:j+1));           % marginal cost
 
 flag = 0; 
 n = n + 1;
-t = - log(draws1(n))/h;                            % first actual jump
+t = - log(drw1(n))/sh;                           % first actual jump
 if t==Inf
     disp('WARNING: t=Inf - no first jump. Something is wrong.');
     flag = 1;
 end
    
-while t<T
+while t>0 && t<T
     % There's a jump!
     times_c(n) = t;                   
     % Where to jump?
-    % (replicates 'mnrnd(1,x)' to get the random draw for entry/exit)
-    x    = [h1,h2,h3,h4]./h;                       % jump probabilities
-    prob = draws2(n);
-    edge = [zeros(1,1) cumsum(x,2)];
-    draw = histc(prob,edge);
-    draw(:,end) = [];
-    draw = find(draw==1);
-    % Outside good changed
-    if draw==size(x,2)
-        % (replicates 'mnrnd(1,x)')
-        trans = I(w0,:)*Q;                 % p0 conditional transition prob
-        prob = draws3(n);
-    	temp = [zeros(1,1) cumsum(trans,2)];
-        draw = histc(prob,temp);
-        draw(:,end) = [];
-        w0 = find(draw==1);
-        p0 = par.p0vec(w0);
-    % Entry
-    elseif draw==size(x,2)-1                     
-        ii = j+1;                          % new firm index
-        wentry = max(nextw(1) - 2,1);      % entry draw
-        nextw(ii) = wentry;
+    % Get transition probabilities conditional on a jump.
+    hh = hj./sh;
+    [draw,nj] = jdraw(hh,drw2(n));
+    % Search for specific shock going backwards.
+    if draw==nj
+        % Aggregate shock (demand or foreign price).
+        trans = Q(d0,:);
+        [d0,~] = jdraw(trans,drw3(n));
+        nextdi(1) = d0;
+    elseif draw==nj-1
+        % Entry event.             
+        % we = max(nextdi(j+1)-2,1);       % entry draw
+        we = par.ie0; 
+        nextdi(j+2) = we;
         nf = nf + 1;                       % add one firm to total firms
-        id(ii) = nf;                       % new firm ID
-        % Update entry event and entry cost
+        id(j+1) = nf;                      % new firm ID
+        % Update entry event and entry cost.
         entry_c(n) = 1;
-        ecost_c(n) = par.entrylo + prob*(par.entryhi-par.entrylo);
-        ecostj_c(n,id(ii)) = ecost_c(n);
-    % Exit
-    elseif draw>j                          % 1st j cells are omega jumps         
-        ii = draw-j;                       % which firm exits
-        nextw(ii) = 0; 
-        % Update exit event and exit cost
-        exit_c(n)  = 1;
-        scrap_c(n) = par.scraplo + prob*(par.scraphi-par.scraplo);
+        ecost_c(n) = par.Phie_lo + drw2(n)*(par.Phie_hi-par.Phie_lo);
+        ecostj_c(n,id(j+1)) = ecost_c(n);
+    elseif draw>3*j                        % 1st 2j cells are productivity jumps
+        % Exit event.
+        ii = draw-3*j;                     % which firm exits
+        nextdi(ii+1) = M+1; 
+        % Update exit event and exit cost.
+        exit_c(n) = 1;
+        scrap_c(n) = par.Phi_lo + drw2(n)*(par.Phi_hi-par.Phi_lo);
         scrapj_c(n,id(ii)) = scrap_c(n);
-        id(ii) = 0;                        % free ID slot
-    % Productivity change
-    else                                 
-        ii = draw;                         % which firm goes up
-        nextw(ii) = nextw(ii)+1;
+        id(ii) = 0;                         % free ID slot
+    elseif draw>2*j
+        % Negative productivity shock.
+        ii = draw-2*j;                       % which firm goes down
+        nextdi(ii+1) = nextdi(ii+1)-1;  
+    elseif draw>j
+        % R&D shock.
+        ii = draw-j;                        % which firm goes up
+        nextdi(ii+1) = nextdi(ii+1)+1; 
+        % Update r&d shock tracker.
+        rdshock(n,id(ii)) = 1;
+    else %draw<=j
+        % LBD shock.
+        ii = draw;                          % which firm goes up
+        nextdi(ii+1) = nextdi(ii+1)+1;
+        % Update lbd shock tracker.
+        lbdshock(n,id(ii)) = 1;        
     end
     
-    temp  = sortrows(flipud([nextw,id]),-1);  % sort decreasing  
-    nextw = temp(:,1);
-    id    = temp(:,2);              
+    % Sort new state.
+    temp   = sortrows([nextdi(2:end) id]);    
+    nextdi = [nextdi(1);temp(:,1)];
+    id     = temp(:,2);              
        
-    % Update everything
-    in = (nextw>0); 
+    % Update everything.
+    in = (nextdi(2:end)<M+1);  
     j  = sum(in);
     if j==0
         disp('WARNING: empty industry.');
         flag=1;
         break
     end
-    w  = qencode(par,nextw);
-    w  = w + par.dostates*(w0-1);
-    price = P(w,in);
-    ex  = X(w,in);
-    en  = E(w,:);
-    [h1,h2,h3,h4,h] = hazz(par,nextw,price,p0,ex(in),en);
-    [Pi,q,q0] = profits(par,nextw(in),price',p0);
-    csurp  = surplus(par,price,p0);
-    rev    = price'.*q;
-    aggprof = sum(Pi);
+    w  = encode(nextdi,par.binom,N,D);
+    p  = P(:,w);
+    x  = X(:,w);
+    y  = Y(:,w);
+    d  = ceil(d0/p0size);
+    p0 = d0 - (d-1)*p0size;
+    d  = mkt(d);
+    p0 = p0vec(p0);
+
+    [pr,q,q0] = profits(par,nextdi(2:j+1),p(in),p0,d);
+    cs        = surplus(par,p(in),p0,d);
+    rev       = p(in).*q;
+    ps        = sum(pr);
+
+    [hj,sh] = hazz(par,nextdi,q,x,y);
     
-    % Record outcomes
-    ind_c(n,:) = [w0 nextw'];                   % industry structure
-    csurplus_c(n) = csurp;                      % consumer surplus
-    aggprof_c(n)  = aggprof;                    % aggregate profits
-    nfirms_c(n) = j;                            % # of active firms
-    p0_c(n) = p0;                               % outside good price
-    q0_c(n) = q0;                               % outside good quantity
-    
+    % Record aggregate outcomes.
+    cs_c(n) = cs;                      % consumer surplus
+    ps_c(n) = ps;                      % aggregate profits
+    nf_c(n) = j;                       % # of active firms
+    p0_c(n) = p0;                      % outside good price
+    q0_c(n) = q0;                      % outside good quantity
+    d_c(n)  = d;
+    nf_c(n) = j;
+
     % Firm-specific values
-    for ff=1:j
-        fprod_c(n,id(ff)) = nextw(ff);                 % productivity
-        price_c(n,id(ff)) = price(ff);                 % price
-        quant_c(n,id(ff)) = q(ff);                     % quantitiy sold
-        reve_c(n,id(ff))  = rev(ff);                   % revenues
-        pij_c(n,id(ff))   = Pi(ff);                    % profits
-        mgc_c(n,id(ff))   = par.mgc(nextw(ff));        % marginal cost
-    end
+    fprod_c(n,id(1:j)) = nextdi(2:j+1);             % productivity
+    p_c(n,id(1:j)) = p(1:j);                        % price
+    x_c(n,id(1:j)) = x(1:j);
+    q_c(n,id(1:j)) = q(1:j);                        % quantitiy sold
+    rev_c(n,id(1:j)) = rev(1:j);
+    pij_c(n,id(1:j)) = pr(1:j);                     % profits
+    mgc_c(n,id(1:j)) = mgc(nextdi(2:j+1));          % marginal cost
     
     % New jump
     n = n + 1;
-    if h>0
-        t = t - log(draws1(n))/h;
+    if sh>0
+        t = t - log(drw1(n))/sh;
     else
-        % No more possible jumps (h=0), end loop 
-        % This part should not run if p0 does not have absorbing state
-        % because there will always be a jump
+        % No more possible jumps (h=0), end loop.
+        % This part will not run in general (either delta>0 or Q does not
+        % have an absorbing state).
         t = T;
     end
 end
 
-times_c  = times_c(1:n-1,:);
-ind_c    = ind_c(1:n-1,:);
-exit_c   = exit_c(1:n-1,:);
-entry_c  = entry_c(1:n-1,:);
-fprod_c  = fprod_c(1:n-1,1:nf);
-price_c  = price_c(1:n-1,1:nf);
-p0_c     = p0_c(1:n-1,:);
-q0_c     = q0_c(1:n-1,:);
-quant_c  = quant_c(1:n-1,1:nf);
-reve_c   = reve_c(1:n-1,1:nf);
-mgc_c    = mgc_c(1:n-1,1:nf);
-pij_c    = pij_c(1:n-1,1:nf);
-ecost_c  = ecost_c(1:n-1,:);
-scrap_c  = scrap_c(1:n-1,:);
-ecostj_c = ecostj_c(1:n-1,1:nf);
-scrapj_c = scrapj_c(1:n-1,1:nf);
-csurplus_c = csurplus_c(1:n-1,:);
-aggprof_c  = aggprof_c(1:n-1,:);
-nfirms_c   = nfirms_c(1:n-1,:);
+out = struct();
+out.times  = times_c(1:n-1,:);
+out.fprod  = fprod_c(1:n-1,1:nf);
+out.p      = p_c(1:n-1,1:nf);
+out.x      = x_c(1:n-1,1:nf);
+out.exit   = exit_c(1:n-1,:);
+out.entry  = entry_c(1:n-1,:);
+out.p0     = p0_c(1:n-1,:);
+out.q0     = q0_c(1:n-1,:);
+out.q      = q_c(1:n-1,1:nf);
+out.rev    = rev_c(1:n-1,1:nf);
+out.mgc    = mgc_c(1:n-1,1:nf);
+out.pij    = pij_c(1:n-1,1:nf);
+out.ecost  = ecost_c(1:n-1,:);
+out.scrap  = scrap_c(1:n-1,:);
+out.ecostj = ecostj_c(1:n-1,1:nf);
+out.scrapj = scrapj_c(1:n-1,1:nf);
+out.cs     = cs_c(1:n-1,:);
+out.ps     = ps_c(1:n-1,:);
+out.nf     = nf_c(1:n-1,:);
+out.d      = d_c(1:n-1,:);
+out.nfvec  = nf_c(1:n-1,:);
+out.nf     = nf;
+out.rdshock  = rdshock(1:n-1,1:nf);
+out.lbdshock = lbdshock(1:n-1,1:nf);
+out.flag   = flag;
+
+end
+
+
+
+%% Compute profits and quantities.
+function [f,q,q0] = profits(par,w,p,p0,d)
+
+% Note that here w is the index of productivity.
+% Everything is computed for active firms only.
+
+den = exp(-par.alpha*(p - p0));
+s   = exp(-par.alpha*(p - p0))./(1 + sum(den)); % shares
+q   = d*s;                                      % quantities
+q0  = d*(1-sum(s));                             % outside good quantities
+c   = par.mgc(w);                               % marginal cost
+
+f = q.*(p - c);                                 % profits
+
+end
+
+%% Compute consumer surplus.
+function cs = surplus(par,p,p0,d)
+
+cs = d*(1/par.alpha)*log(sum(exp(-par.alpha*(p-p0))));
+
+end
+
+%% Compute hazards of jumps.
+function [hj,sh] = hazz(par,di,q,x,y)
+
+% Computes 'hj', a vector of event-specific hazards, and 'sh', the hazard
+% of a jump in the state of the industry due to any shock. 
+% Note: hazard vectors are all column vectors.
+
+in1 = (di(2:end)==par.M);
+in2 = (di(2:end)==1);
+in3 = (di(2:end)<par.M+1);
+en  = find(di(2:end)==par.M+1,1);
+
+h1 = (par.eta1*q)./(1+par.eta1*q);          % learning hazard
+h1(in1) = 0;
+h2 = par.alpha1*x(in3).^par.alpha2;         % r&d hazard
+h2(in1)= 0;
+h3 = ones(sum(in3),1)*par.delta;            % negative prod. shock hazard
+h3(in2) = 0;
+h4 = par.etax1*y(in3);                      % exit hazard
+h5 = par.etae1*y(en);                       % entry hazard
+h6 = par.gamma;                             % aggregate shock hazard 
+
+
+if isempty(h1) 
+    h1=zeros(in3,1);
+end
+if isempty(h2)
+    h2=zeros(in3,1);
+end
+if isempty(h3)
+    h3=zeros(in3,1);
+end
+if isempty(h4)
+    h4=zeros(in3,1);
+end
+if isempty(h5)
+    h5=0;
+end
+
+% h1 and h2 are not combined so that we can keep track of LBD vs R&D.
+% Note the dim of hj is (4j+2,1).
+hj = [h1;h2;h3;h4;h5;h6];
+sh = sum(h1)+sum(h2)+sum(h3)+sum(h4)+h5+h6;
+
+end
+
+%% Get draw for jump (index of which event occurred).
+function [draw,nj] = jdraw(x,prob)
+
+% Replicates 'mnrnd(1,x)' to get random draw for new jump, but providing
+% the random draw 'prob'.
+% 'x' is a vector containing the probabilities of jumping to a specific
+% event.
+
+% x has to be a column vector. 
+if size(x,2)~=1
+    x = x';
+end
+% # of possible jumps.
+nj   = size(x,1);                   
+edge = [zeros(1,1);cumsum(x,1)];
+draw = histc(prob,edge);
+draw(:,end) = [];
+draw = find(draw==1);
+end
