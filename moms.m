@@ -1,68 +1,95 @@
-function MM = moms(par,P,X,E,solveflag)
+function MM = moms(par,p1,x1,y1,solveflag)
 
 % =========================================================================
+% Dynamic oligopoly.
+% Continuous time version.
 %
-% Creates moments to match of the continuous time learning by doing model.
-% Calls:
+% moms:
+% - creates moments to match data.
 % - sim_cont: simulates arrival times and outcomes.
 % - sim_disc: fits simulation in a discrete time grid. 
 %
-% Written by BDA @ PSU July 2014.
+% Written by Bernardo Diaz de Astarloa @ PSU 2014.
 % =========================================================================
 
-%% Simulation settings
-T = par.T;              % # of periods to simulate
-S = par.S;              % # of simulations to run
+%% Simulation settings and parameters.
 
-wstart  = par.wstart;   % initial industry structure
-w0start = par.w0start;  % starting outside good price
+p0size = par.p0size;
+M      = par.M;
 
-learning  = zeros(1,S);
-share_ar1 = zeros(1,S);
-reve_ar1  = zeros(1,S);
-exitrate  = zeros(1,S);
-entryrate = zeros(1,S);
-avp       = zeros(1,S);
+mkt0 = 1;                                    % initial demand state
+p0   = p0size;                               % initial foreign price state
+w0   = [1 1 1 2 4 M+1 M+1 M+1]';             % initial industry structure
+d0   = p0+(mkt0-1)*p0size;                   % index of exogenous shock
+di_0 = [d0;w0];
 
-if solveflag==1
-    learning  = ones(1,S)*100;
-    share_ar1 = ones(1,S)*100;
-    reve_ar1  = ones(1,S)*100;
-    exitrate  = ones(1,S)*100;
-    entryrate = ones(1,S)*100;
-    avp       = ones(1,S)*100;
+T = 11;                                      % # of periods to simulate
+S = 500;                                     % # of simulations to run
+
+% Random draws for simulations (#jumps,#simulations)
+savedraws = sprintf('draws_T%dS%d.mat',[T,S]); 
+if exist(savedraws,'file')
+    load(savedraws)
+else
+    rng(8282);
+    jumps = 30;                               % # of jumps allowed for per period
+    draws = struct();
+    draws.any = rand(T*jumps,S);              % draws: any jump 
+    draws.ind = rand(T*jumps,S);              % draws: firm-level jumps
+    draws.out = rand(T*jumps,S);              % draws: aggregate jump
+    eval(['save ',savedraws,' draws']);
+end
+
+
+%% Start simulations.
+
+learning  = zeros(S,1);
+share_ar1 = zeros(S,1);
+reve_ar1  = zeros(S,1);
+exitrate  = zeros(S,1);
+entryrate = zeros(S,1);
+avp       = zeros(S,1);
+
+if solveflag~=1
+    learning  = ones(S,1)*100;
+    share_ar1 = ones(S,1)*100;
+    reve_ar1  = ones(S,1)*100;
+    exitrate  = ones(S,1)*100;
+    entryrate = ones(S,1)*100;
+    avp       = ones(S,1)*100;
 else   
     for sim=1:S
-        % Simulate industry: arrival times and jumps
-        [nf,times_c,~,exit_c,entry_c,fprod_c,pij_c,~,p0_c,q0_c,mgn_c,quant_c,rev_c,ecostj_c,scrapj_c,ecost_c,scrap_c,csurplus_c,aggprof_c,nfirms_c,simflag] = sim_cont(par,T,P,E,X,wstart,w0start,sim);
+        % Simulate industry: arrival times and jumps.
+        outc = sim_cont(par,p1,x1,y1,di_0,draws,T,sim);
         
-        if simflag==1
-            disp('Something went wrong in simulation');
-            learning  = ones(1,S)*100;
-            share_ar1 = ones(1,S)*100;
-            reve_ar1  = ones(1,S)*100;
-            exitrate  = ones(1,S)*100;
-            entryrate = ones(1,S)*100;
-            avp       = ones(1,S)*100;
+        if outc.flag==1
+            disp('Something went wrong in simulation.');
+            learning  = ones(S,1)*100;
+            share_ar1 = ones(S,1)*100;
+            reve_ar1  = ones(S,1)*100;
+            exitrate  = ones(S,1)*100;
+            entryrate = ones(S,1)*100;
+            avp       = ones(S,1)*100;
             break
         else   
-            % Fit to discrete time grid (years)
-            % AD: aggregate data | PD: panel data
-            [agg,panel,~] = sim_disc(par,nf,times_c,exit_c,entry_c,fprod_c,pij_c,p0_c,q0_c,mgn_c,quant_c,rev_c,ecostj_c,scrapj_c,ecost_c,scrap_c,csurplus_c,aggprof_c,nfirms_c,T);
+            % Fit to discrete time grid (years).
+            % AD: aggregate data | PD: panel data.
+            [agg,panel,~] = sim_disc(par,outc,T);
 
             % Define variables for moments
             % Simulated data are sorted by id then period
+            nf     = outc.nf;
             id     = panel(:,1);
             year   = panel(:,2);
             price  = panel(:,4);
             rev    = panel(:,6);
-            share  = panel(:,8);
+            share  = panel(:,9);
 
-            lagrev   = panel(:,14);
-            lagshare = panel(:,15);
+            lagrev   = panel(:,17);
+            lagshare = panel(:,18);
             
-            cumq1    = panel(:,11);
-            cumq2    = panel(:,18);
+            cumq1    = panel(:,14);
+            cumq2    = panel(:,21);
             
             entry = agg(:,2);
             exit  = agg(:,3);
@@ -75,6 +102,7 @@ else
             
             % ---------------------------------------------------------------------
             % Leaning curve
+            % ---------------------------------------------------------------------
             ii = (cumq1>0);
             %ii = (cumq2>0);
             y  = log(price(ii,:));
@@ -94,49 +122,55 @@ else
             
             [b,~,~] = regress(y,x);
             % rMSE = sqrt(sum(r.^2)/size(y,1));
-            learning(:,sim) = b(2);
-            % ---------------------------------------------------------------------
+            learning(sim,:) = b(2);
+
             
             % ---------------------------------------------------------------------
-            % Exit rate
-            exitrate(:,sim) = mean(exit);
-            % Entry rate
-            entryrate(:,sim) = mean(entry);
+            % Exit and entry rates
             % ---------------------------------------------------------------------
+            exitrate(sim,:) = mean(exit);
+            entryrate(sim,:) = mean(entry);
+            
             
             % ---------------------------------------------------------------------
             % Log shares AR1
+            % ---------------------------------------------------------------------
             ii = (lagshare>0);
             y  = log(share(ii,:));
             x  = [const(ii) year(ii) log(lagshare(ii))];
             [b,~,~] = regress(y,x);
             % rMSE    = sqrt(sum(r.^2)/(size(y,1)-2));
-            share_ar1(:,sim) = b(3);
-            % ---------------------------------------------------------------------
+            share_ar1(sim,:) = b(3);
+            
             
             % ---------------------------------------------------------------------
             % Log revenues AR1
+            % ---------------------------------------------------------------------
             ii = (lagrev>0);
             y  = log(rev(ii,:));
             x  = [const(ii) year(ii) log(lagrev(ii))];
             [b,~,~] = regress(y,x);
             % rMSE    = sqrt(sum(r.^2)/(size(y,1)-2));
-            reve_ar1(:,sim) = b(3);
-            % ---------------------------------------------------------------------
+            reve_ar1(sim,:) = b(3);
+
             
             % ---------------------------------------------------------------------
             % Mean price
-            avp(:,sim) = mean(price(price>0));
             % ---------------------------------------------------------------------
+            avp(sim,:) = mean(price(price>0));
+            
         end
     end
 end
 
-learning  = mean(learning,2);
-share_ar1 = mean(share_ar1,2);
-reve_ar1  = mean(reve_ar1,2);
-exitrate  = mean(exitrate,2);
-entryrate = mean(entryrate,2);
-avp       = mean(avp,2);
+
+%% Compute moments.
+
+learning  = mean(learning,1);
+share_ar1 = mean(share_ar1,1);
+reve_ar1  = mean(reve_ar1,1);
+exitrate  = mean(exitrate,1);
+entryrate = mean(entryrate,1);
+avp       = mean(avp,1);
 
 MM = cat(1,learning,reve_ar1,exitrate,entryrate,avp); 
