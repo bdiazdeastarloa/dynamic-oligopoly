@@ -1,4 +1,15 @@
-function [np,nv] = init(N,M,S,state,agg,mgc,p0vec,mkt,alpha,rho)
+function [np,nv] = init(par)
+
+state = par.state;
+agg   = par.agg;
+alpha = par.alpha;
+rho   = par.rho;
+mkt   = par.mkt;
+mgc   = par.mgc;
+p0vec = par.p0vec;
+N     = par.N;
+S     = par.S;
+M     = par.M;
 
 usedogleg = 1;
 np = zeros(N,S);
@@ -23,7 +34,8 @@ for s = 1:S
         pars.p0 = p0;
         pars.a  = alpha;
         if usedogleg
-            MaxIter = 400; TolFun = 1e-6; TolX = 1e-6; options = [1,TolFun,TolX,TolFun,MaxIter,1e-6];
+            MaxIter = 400; TolFun = 1e-6; TolX = 1e-6; 
+            options = [1,TolFun,TolX,TolFun,MaxIter,1e-6];
             [pstar,info] = SDogLeg('foc_static',pars,c,options);
             if info(6)>3
                 warning('There is a problem with SDogLeg!');
@@ -49,7 +61,7 @@ for s = 1:S
         nv(1:Nstar,s) = pr./rho;
     end
     
-    if (mod(s,5000) == 0)
-        disp(['Solving state ' int2str(s) '.']);
-    end        
+    % if (mod(s,5000) == 0)
+    %     disp(['Solving state ' int2str(s) '.']);
+    % end        
 end
