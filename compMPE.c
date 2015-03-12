@@ -5,10 +5,12 @@
  * Based on original code for Windows by Uli Doraszelski, Feb 2006. 
  * 
  * Extended and edited for Mac/Linux by Bernardo Diaz de Astarloa, 
- * Jan 2015 @ Penn State.
- * 
- * Extension includes GSL libraries for pricing policies using FOCs. 
- * ----------------------------------------------------------------------*/
+ * Jan 2015 @ Penn State. 
+ *
+ * Extension includes GSL and NLopt libraries to compute pricing policies 
+ * using FOCs.
+ * --------------------------------------------------------------------- */
+
 
 #include "mex.h"
 #include "matrix.h"
@@ -32,8 +34,8 @@
 #define NMAX 10                             /* Max. # of firms allowed in the market. */
 #define DMAX 20                             /* Max. # of commons states allowed. */
 /* #define GJ 1 */                                /* Iteration method: Gauss-Jacobi. */
-#define FOCDERIV 1                          /* Rootfinding method: derivative-based. */
-/* #define FOCNODERIV 1 */                        /* Rootfinding method: bracketing-based. */
+#define FOCDERIV 1                          /* Use NLopt, derivative-based. */
+/* #define FOCNODERIV 1 */                        /*Use GSL: bracke ting-based. */
 /* #define BUBBLE */
 /* #define BACKWARD */
 /* #define ALTERNATING */
@@ -44,59 +46,57 @@
 #define STRLEN 40                           /* Max. # of string characters for input MAT-file. */
 
 /* Global variables. */
-unsigned char D;			    /* # (demand,import price) common states. */
+unsigned char D;                            /* # (demand,import price) common states. */
 unsigned char dsize;                        /* # demand common states. */
 unsigned char p0size;                       /* # import price common states. */
-int N;					    /* # firms. */
-unsigned char M;			    /* # productivity states (i_j). */
-unsigned long S;			    /* State space: # of unique states of the world. */
+int N;                                      /* # firms. */
+unsigned char M;                            /* # productivity states (i_j). */
+unsigned long S;                            /* State space: # of unique states of the world. */
 mxArray *binom_ptr; unsigned long *binom;   /* State space: Binomial coefficients for decoding/encoding. */
 mxArray *state_ptr; unsigned char *state;   /* State space: List of unique states of the world. */
 mxArray *impp_ptr; double *impp;            /* State space: Import price grid. */
 mxArray *mkt_ptr; double *mkt;              /* State space: Market size. */
 mxArray *mgc_ptr; double *mgc;              /* State space: Marginal cost vector (productivity). */
 
-double rho;				    /* Discount factor. */
+double rho;                                 /* Discount factor. */
 double alpha;                               /* Demand: Price coefficient. */
 double Phi_lo;                              /* Scrap value: lower bound. */
 double Phi_hi;                              /* Scrap value: upper bound. */
-double Phie_lo;				    /* Entry cost: lower bound. */
-double Phie_hi;				    /* Entry cost: upper bound. */
+double Phie_lo;                             /* Entry cost: lower bound. */
+double Phie_hi;                             /* Entry cost: upper bound. */
 
-mxArray *trans_ptr; double *trans;	    /* Transition rates: (demand,import price) states. */
-double delta;				    /* Transition rates: Incumbent productivity. */
+mxArray *trans_ptr; double *trans;          /* Transition rates: (demand,import price) states. */
+double delta;                               /* Transition rates: Incumbent productivity. */
 double alpha1;                              /* Transition rates: Incumbent productivity. */
 double alpha2;                              /* Transition rates: Incumbent productivity. */
-double eta1;				    /* Transition rates: Incumbent lbd. */
-double eta2;				    /* Transition rates: Incumbent lbd. */
+double eta1;                                /* Transition rates: Incumbent lbd. */
+double eta2;                                /* Transition rates: Incumbent lbd. */
 double etax1;                               /* Transition rates: Incumbent exit. */
-/* double etax2; */                         /* Transition rates: Incumbent exit (exponential spec). */
-double etae1;				    /* Transition rates: Potential entrant entry. */
-/* double etae2; */		            /* Transition rates: Potential entrant entry (exponential spec). */
-unsigned char ie0;			    /* Transition rates and initial state: Potential entrant. */
+double etax2;                               /* Transition rates: Incumbent exit (exponential spec). */
+double etae1;                               /* Transition rates: Potential entrant entry. */
+double etae2;                               /* Transition rates: Potential entrant entry (exponential spec). */
+unsigned char ie0;                          /* Transition rates and initial state: Potential entrant. */
 
-char matfile[STRLEN];			    /* Program control: MAT-file name. */
-char method[STRLEN];		            /* Program control: Iteration method. */
-int maxiter;				    /* Program control: Maximum number of iterations. */
-double tol;				    /* Program control: Tolerance. */
-int steps;				    /* Program control: Number of steps in modified policy iteration. */
-double lambdaV;				    /* Program control: Weight of updated value function. */
-double lambdax;				    /* Program control: Weight of updated investment policy. */
-double lambdap;				    /* Program control: Weight of updated pricing policy. */
-double lambday;				    /* Program control: Weight of updated entry/exit policy. */
-mxArray *info_ptr; double *info;	    /* Program control: Performance information. */
+char matfile[STRLEN];                       /* Program control: MAT-file name. */
+char method[STRLEN];                        /* Program control: Iteration method. */
+int maxiter;                                /* Program control: Maximum number of iterations. */
+double tol;                                 /* Program control: Tolerance. */
+int steps;                                  /* Program control: Number of steps in modified policy iteration. */
+double lambdaV;                             /* Program control: Weight of updated value function. */
+double lambdax;                             /* Program control: Weight of updated investment policy. */
+double lambdap;                             /* Program control: Weight of updated pricing policy. */
+double lambday;                             /* Program control: Weight of updated entry/exit policy. */
+mxArray *info_ptr; double *info;            /* Program control: Performance information. */
 
-mxArray *V0_ptr; double *V0;		    /* Starting values: Value function. */
-mxArray *x0_ptr; double *x0;		    /* Starting values: Investment policy. */
+mxArray *V0_ptr; double *V0;				/* Starting values: Value function. */
+mxArray *x0_ptr; double *x0;				/* Starting values: Investment policy. */
 mxArray *p0_ptr; double *p0;                /* Starting values: Pricing policy. */
-mxArray *z0_ptr; double *z0;		    /* Starting values: Exit/entry policy. */
+mxArray *z0_ptr; double *z0;                /* Starting values: Exit/entry policy. */
 
-mxArray *V1_ptr; double *V1;		    /* Value function. */
-mxArray *x1_ptr; double *x1;		    /* Investment policy. */
+mxArray *V1_ptr; double *V1;                /* Value function. */
+mxArray *x1_ptr; double *x1;                /* Investment policy. */
 mxArray *p1_ptr; double *p1;                /* Pricing policy. */
-mxArray *z1_ptr; double *z1;		    /* Entry/exit policy. */
-
-mxArray *pfoc_ptr; double *pfoc;            /* Prices to pass to FOCs. */
+mxArray *z1_ptr; double *z1;                /* Entry/exit policy. */
 
 typedef struct focpar {                     /* Pricing policy: FOC parameters. */
     double low;                             /* FOC: Bracketing lower bound. */
