@@ -21,24 +21,28 @@ M = size(w,2);                                   % # of productivity states
 % wl = 1;
 % wh = 11.5;
 % w  = [wl:(wh-wl)./(M-1):wh]';
-ie0 = M-2;                                       % productivity level at entry (fixed case)
+ie0 = 3;                                         % productivity level at entry (fixed case)
 
 % Estimate import price process.
 % gamma: hazard rate of a jump. 
 % p0vec: grid.
 % Q: intensity matrix.
 load p0;                                         % load imported price series
-[gamma,p0vec,Qp] = p0process(p0,2);              % estimate imported price process 
+[~,p0vec,Qp] = p0process(p0,2);                  % estimate imported price process 
+% p0vec  = 2.3;
+% Qp     = 0;
+% load p0process_alt;
+% p0vec = p0vec_alt;
+% Qp    = Qp_alt;
+p0size = size(p0vec,1);                          % # of imported price states 
 if counter==1                                    % countefactual 1:
     tariff = 0.3;                                % 30% tariffs
     p0vec  = (1+tariff)*p0vec;     
 end
-% p0vec  = 2.3;
-% Qp     = 0;
-p0size = size(p0vec,1);                          % # of imported price states 
+clear p0;
 
 % Demand.
-% mkt = [100 160 220];                          % domestic demand (MW)
+% mkt = [100 160 220];                          
 mkt = 160;
 dsize = size(mkt,2);                             % # of demand states     
 Qd = zeros(dsize,dsize);                         % demand transitions
@@ -46,7 +50,7 @@ if dsize>1
     Qd = zeros(dsize,dsize)-log(2/3).*diag(ones(dsize-1,1),1);
     Qd(dsize,1) = -log(2/3);
 end
-D = dsize*p0size;                               % # of (d,p0) common states
+D = dsize*p0size;                                % # of (d,p0) common states
 
 % Common states transition matrix (DxD).
 trans = kron(Qd,eye(p0size,p0size));
@@ -55,6 +59,9 @@ for i=1:dsize
     i2 = i1+p0size-1;
     trans(i1:i2,i1:i2) = Qp;
 end
+% Hazard of an aggregate shock (sum of a row of 'trans').
+gamma = sum(trans,2);
+gamma = gamma(1);
 
 % Technology.
 beta = -1;                                       % slope of learning curve
@@ -68,30 +75,10 @@ method = 'GaussSeidel';
 lambdaV = 0.9;                                   % dampening factor: value function
 lambdax = 0.9;                                   % dampening factor: investment policy
 lambdap = 0.9;                                   % dampening factor: pricing policy   
-lambday = 0.8;                                     % dampening factor: exit/entry policies   
-maxiter = 200;                                   % max # of iterations
+lambday = 0.9;                                   % dampening factor: exit/entry policies   
+maxiter = 500;                                   % max # of iterations
 tol     = 1e-4;                                  % tolerance
 steps = 0;                                       % # steps in modified policy iteration.
-
-% Simulation settings
-T    = 11;                                       % number of periods to simulate
-sims = 500;                                      % number of simulations
-
-% Random draws for simulations (T*30,sims)
-% if exist('rand_draws.mat','file')
-%     load rand_draws;
-% else
-%     rng(8282);
-%     jumps     = 30;                              % allow for many jumps per period
-%     draws_agg = rand(T*jumps,sims);              % draws: aggregate jump 
-%     draws_ind = rand(T*jumps,sims);              % draws: firm-level jumps
-%     draws_out = mnrnd(1,[0.5 0 0.5],330);        % draws: outside good     
-%     save rand_draws draws_agg draws_ind draws_out;
-% end
-d0  = 1;                                         % initial demand state
-p00 = 1;                                         % initial foreign price state
-w0  = [1 1 1 2 4 M+1 M+1 M+1];                   % initial industry structure
-common0 = [d0 p00];                              % initial common state
 
 
 %% State space encoding.
@@ -127,36 +114,15 @@ else
 end
 
 % Demand/Foreign price combinations indices.
-agg = zeros(D,2);
-for i=1:dsize
-    for j=1:p0size
-        ind = j + (i-1)*p0size;
-        agg(ind,1) = i;
-        agg(ind,2) = j;
-    end
-end
+% (This is the cartesian product of the indices.)
+[agg1,agg2] = meshgrid((1:dsize),(1:p0size));
+agg = [agg1(:) agg2(:)];
 
-%% Compute initial values for policies and value function.
-
-initfile2 = ['initials_N' int2str(N) 'M' int2str(M) 'D' int2str(D) 'a' sprintf('%5.4f', alpha) '.mat'];
-if exist(initfile2, 'file')
-    load(initfile2);
-else
-    state_ = double(state);
-    % Set initial prices and values to static game solution
-    [p0,V0] = init(N,M,S,state_,agg,mgc,p0vec,mkt,alpha,rho);
-    eval(['save ',initfile2,' p0 V0']);
-    clear state_
-end
-
-x0 = zeros(N,S);
-y0 = zeros(N,S);
 
 %% Declare variables names.
 
 % Declare variable names to pass to MEX-file.
 % NOTE: This is a vector of strings, not mat files.
-
 vars = [
         ' rho ', ...					% Discount factor.
         ' alpha ',...                   % Demand system: price coefficient.
@@ -178,7 +144,9 @@ vars = [
         ' eta1 ', ...					% LBD process: hazard rate param.
         ' eta2 ', ...					% LBD process: hazard rate param.
         ' etax1 ', ...					% Exit: hazard rate param.
+        ' etax2 ',...                   % Exit: hazard rate param.    
         ' etae1 ', ...				    % Entry: hazard rate param.
+        ' etae2 ', ...                  % Entry: hazard rate param.
         ' ie0 ', ...					% Potential entrant initial state.
         ' Phi_hi ', ...					% Scrap value: upper bound.
         ' Phi_lo ', ...					% Scrap value: lower bound.
@@ -197,5 +165,42 @@ vars = [
         ' p0 ',...                      % Starting values: Pricing policy.
         ' y0 '  					    % Starting values: Entry/exit policy.
         ];
-    
- 
+
+% File name to give as input to MEX-file.
+mexinp = sprintf('ind_N%dM%dD%d.mat',[N,M,D]);
+
+
+%% Create parameter structure to pass to simulations.
+
+par = struct();
+par.w      = w;
+par.rho    = rho;
+par.alpha  = alpha;
+par.N      = N;
+par.M      = M;
+par.D      = D;
+par.S      = S;
+par.p0size = p0size;
+par.dsize  = dsize;
+par.mkt    = mkt;
+par.p0vec  = p0vec;
+par.mgc    = mgc;
+par.trans  = trans;
+par.binom  = double(binom);
+par.state  = double(state);
+par.agg    = agg;
+par.delta  = delta;
+par.alpha1 = alpha1;
+par.alpha2 = alpha2;
+par.eta1   = eta1;
+par.eta2   = eta2;
+par.etax1  = etax1;
+par.etax2  = etax2;
+par.etae1  = etae1;
+par.etae2  = etae2;
+par.gamma  = gamma;
+par.ie0    = ie0;
+par.Phi_hi = Phi_hi;
+par.Phi_lo = Phi_lo;
+par.Phie_hi= Phie_hi;
+par.Phie_lo= Phie_lo;
