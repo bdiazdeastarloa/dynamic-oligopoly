@@ -14,32 +14,27 @@
 N   = 8;                                         % max # of firms  
 rho = -log(0.925);                               % discount rate
 
-% State variables
-w = [1 2.3 3.6 5 8.1 11.5];                      % productivity vector
+% Produtivity.
+w = [1 2 2.8 3.5 4.2 6];                         % productivity vector
+%w = [1 2.3 3.6 5 8.1 11.5];
 M = size(w,2);                                   % # of productivity states
-% M  = 6;
-% wl = 1;
-% wh = 11.5;
-% w  = [wl:(wh-wl)./(M-1):wh]';
 ie0 = 3;                                         % productivity level at entry (fixed case)
 
 % Estimate import price process.
 % gamma: hazard rate of a jump. 
 % p0vec: grid.
 % Q: intensity matrix.
-load p0;                                         % load imported price series
-[~,p0vec,Qp] = p0process(p0,2);                  % estimate imported price process 
+load pfor_data;                                  % load imported price series
+%[~,pfor,Qp] = p0process(pfor_data,2);           % estimate imported price process 
+[~,pfor,Qp] = p0process_alt(pfor_data,2);       % ad-hoc calibration of imported price process
 % p0vec  = 2.3;
 % Qp     = 0;
-% load p0process_alt;
-% p0vec = p0vec_alt;
-% Qp    = Qp_alt;
-p0size = size(p0vec,1);                          % # of imported price states 
+p0size = size(pfor,1);                          % # of imported price states 
 if counter==1                                    % countefactual 1:
     tariff = 0.3;                                % 30% tariffs
-    p0vec  = (1+tariff)*p0vec;     
+    pfor  = (1+tariff)*pfor;     
 end
-clear p0;
+clear pfor_data;
 
 % Demand.
 % mkt = [100 160 220];                          
@@ -120,8 +115,8 @@ agg = [agg1(:) agg2(:)];
 
 
 %% Declare variables names.
-
-% Declare variable names to pass to MEX-file.
+%{
+% Declare variable names to save.
 % NOTE: This is a vector of strings, not mat files.
 vars = [
         ' rho ', ...					% Discount factor.
@@ -133,7 +128,7 @@ vars = [
         ' p0size ', ...					% Common state: # of foreign price values.
         ' dsize ', ...					% Common state: # of domestic demand values.
         ' mkt ',...                     % Common state: domestic demand values.
-        ' p0vec ',...                   % Common state: foreign price values.
+        ' pfor ',...                    % Common state: foreign price values.
         ' mgc ',...                     % Marginal cost values (for each productivity level).
         ' trans ', ...					% Transition rates: common state.
         ' binom ',...                   % State space encoding: binomial table.
@@ -163,32 +158,30 @@ vars = [
         ' V0 ', ...						% Starting values: Value function.
         ' x0 ', ...						% Starting values: Investment policy.
         ' p0 ',...                      % Starting values: Pricing policy.
-        ' y0 '  					    % Starting values: Entry/exit policy.
+        ' y0 '                          % Starting values: Entry/exit policy.
         ];
 
-% File name to give as input to MEX-file.
+% File name for this industry structure.
 mexinp = sprintf('ind_N%dM%dD%d.mat',[N,M,D]);
+%}
 
-
-%% Create parameter structure to pass to simulations.
+%% Create parameter structure to pass to solver and simulations.
 
 par = struct();
+
+% Parameters and constants.
 par.w      = w;
-par.rho    = rho;
-par.alpha  = alpha;
 par.N      = N;
 par.M      = M;
 par.D      = D;
 par.S      = S;
+par.rho    = rho;
+par.alpha  = alpha;
 par.p0size = p0size;
 par.dsize  = dsize;
-par.mkt    = mkt;
-par.p0vec  = p0vec;
 par.mgc    = mgc;
-par.trans  = trans;
-par.binom  = double(binom);
-par.state  = double(state);
-par.agg    = agg;
+par.pfor   = pfor;
+par.mkt    = mkt;
 par.delta  = delta;
 par.alpha1 = alpha1;
 par.alpha2 = alpha2;
@@ -204,3 +197,19 @@ par.Phi_hi = Phi_hi;
 par.Phi_lo = Phi_lo;
 par.Phie_hi= Phie_hi;
 par.Phie_lo= Phie_lo;
+
+% Arrays.
+par.binom  = binom;
+par.state  = state;
+par.trans  = trans;
+par.agg    = agg;
+
+% Program controls.
+par.maxiter = maxiter; 
+par.tol = tol;
+par.steps = steps;
+par.lambdaV = lambdaV;
+par.lambdax = lambdax;
+par.lambdap = lambdap;
+par.lambday = lambday;
+par.method = method;

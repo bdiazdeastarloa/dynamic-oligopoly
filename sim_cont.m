@@ -1,4 +1,4 @@
-function out = sim_cont(par,P,X,Y,di,draws,T,sim)
+function out = sim_cont(par,P,X,Y,di,drw1,drw2,drw3,T)
 
 % =========================================================================
 % Dynamic oligopoly.
@@ -15,16 +15,14 @@ function out = sim_cont(par,P,X,Y,di,draws,T,sim)
 N = par.N;
 M = par.M;
 D = par.D;
+binom = double(par.binom);
 p0size = par.p0size;
-p0vec  = par.p0vec;
+p0vec  = par.pfor;
 mkt    = par.mkt;
 mgc    = par.mgc;
 Q      = par.trans/par.gamma;      % aggregate state transition matrix
 F = N*2;                           % max number of firms in history
-TT = T*15;                         % max number of jumps in history
-drw1 = draws.any(:,sim);
-drw2 = draws.ind(:,sim);
-drw3 = draws.out(:,sim);
+TT = T*20;                         % max number of jumps in history
 
 times_c = zeros(TT,1);             % arrival times
 fprod_c = zeros(TT,F);             % firms' productivities
@@ -48,16 +46,18 @@ ps_c     = zeros(TT,1);            % aggregate profits
 nf_c     = zeros(TT,1);            % # active firms
 rdshock  = zeros(TT,F);            % keep track of r&d shocks
 lbdshock = zeros(TT,F);            % keep track of lbd shocks
+tentry   = NaN(TT,F);            % record entry times
 
 % Set initial state.
 in  = (di(2:end)<M+1);             % index of incumbents
 j   = sum(in);                     % # active firms
-w   = encode(di,par.binom,N,D);       
+w   = encode(di,binom,N,D);       
 d0  = di(1);
 d   = ceil(d0/p0size);
 p0  = d0 - (d-1)*p0size;
 d   = mkt(d);
 p0  = p0vec(p0);
+t   = 0;
 
 % Assign policies.
 p   = P(:,w);
@@ -93,13 +93,14 @@ d_c(n)  = d;
 nf_c(n) = j;
 
 % Store firm-specific values.
-fprod_c(n,id(1:j)) = nextdi(2:j+1);              % productivity
-p_c(n,id(1:j)) = p(1:j);                         % price
-x_c(n,id(1:j)) = x(1:j);                         % price
-q_c(n,id(1:j)) = q(1:j);                         % quantitiy sold
+fprod_c(n,id(1:j)) = nextdi(2:j+1);                     % productivity
+p_c(n,id(1:j)) = p(1:j);                                % price
+x_c(n,id(1:j)) = x(1:j);                                % rd investment
+q_c(n,id(1:j)) = q(1:j);                                % quantitiy sold
 rev_c(n,id(1:j)) = rev(1:j);
-pij_c(n,id(1:j)) = pr(1:j);                      % profits
-mgc_c(n,id(1:j)) = mgc(nextdi(2:j+1));           % marginal cost
+pij_c(n,id(1:j)) = pr(1:j);                             % profits
+mgc_c(n,id(1:j)) = mgc(nextdi(2:j+1));                  % marginal cost
+tentry(:,id(1:j))= t;      
 
 flag = 0; 
 n = n + 1;
@@ -124,8 +125,8 @@ while t>0 && t<T
         nextdi(1) = d0;
     elseif draw==nj-1
         % Entry event.             
-        % we = max(nextdi(j+1)-2,1);       % entry draw
-        we = par.ie0; 
+        we = max(nextdi(j+1)-2,1);         % entry draw
+        %we = par.ie0; 
         nextdi(j+2) = we;
         nf = nf + 1;                       % add one firm to total firms
         id(j+1) = nf;                      % new firm ID
@@ -133,6 +134,7 @@ while t>0 && t<T
         entry_c(n) = 1;
         ecost_c(n) = par.Phie_lo + drw2(n)*(par.Phie_hi-par.Phie_lo);
         ecostj_c(n,id(j+1)) = ecost_c(n);
+        tentry(n:end,id(j+1)) = t;
     elseif draw>3*j                        % 1st 2j cells are productivity jumps
         % Exit event.
         ii = draw-3*j;                     % which firm exits
@@ -144,7 +146,7 @@ while t>0 && t<T
         id(ii) = 0;                         % free ID slot
     elseif draw>2*j
         % Negative productivity shock.
-        ii = draw-2*j;                       % which firm goes down
+        ii = draw-2*j;                      % which firm goes down
         nextdi(ii+1) = nextdi(ii+1)-1;  
     elseif draw>j
         % R&D shock.
@@ -173,7 +175,7 @@ while t>0 && t<T
         flag=1;
         break
     end
-    w  = encode(nextdi,par.binom,N,D);
+    w  = encode(nextdi,binom,N,D);
     p  = P(:,w);
     x  = X(:,w);
     y  = Y(:,w);
@@ -196,12 +198,11 @@ while t>0 && t<T
     p0_c(n) = p0;                      % outside good price
     q0_c(n) = q0;                      % outside good quantity
     d_c(n)  = d;
-    nf_c(n) = j;
 
     % Firm-specific values
     fprod_c(n,id(1:j)) = nextdi(2:j+1);             % productivity
     p_c(n,id(1:j)) = p(1:j);                        % price
-    x_c(n,id(1:j)) = x(1:j);
+    x_c(n,id(1:j)) = x(1:j);                        % rd investment
     q_c(n,id(1:j)) = q(1:j);                        % quantitiy sold
     rev_c(n,id(1:j)) = rev(1:j);
     pij_c(n,id(1:j)) = pr(1:j);                     % profits
@@ -219,8 +220,15 @@ while t>0 && t<T
     end
 end
 
+% Compute discount rates.
+temp1 = repmat(times_c(1:n-1),1,nf);
+temp2 = tentry(1:n-1,1:nf);
+discount = exp(-par.rho*(temp1 - temp2));
+
+% Compile output.
 out = struct();
 out.times  = times_c(1:n-1,:);
+out.discountf = discount;
 out.fprod  = fprod_c(1:n-1,1:nf);
 out.p      = p_c(1:n-1,1:nf);
 out.x      = x_c(1:n-1,1:nf);
@@ -244,7 +252,9 @@ out.nfvec  = nf_c(1:n-1,:);
 out.nf     = nf;
 out.rdshock  = rdshock(1:n-1,1:nf);
 out.lbdshock = lbdshock(1:n-1,1:nf);
+out.n      = n-1;
 out.flag   = flag;
+
 
 end
 
@@ -269,7 +279,7 @@ end
 %% Compute consumer surplus.
 function cs = surplus(par,p,p0,d)
 
-cs = d*(1/par.alpha)*log(sum(exp(-par.alpha*(p-p0))));
+cs = d*(1/par.alpha)*log(sum(exp(-par.alpha*p))+exp(-par.alpha*p0));
 
 end
 

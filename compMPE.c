@@ -54,7 +54,7 @@ unsigned char M;                            /* # productivity states (i_j). */
 unsigned long S;                            /* State space: # of unique states of the world. */
 mxArray *binom_ptr; unsigned long *binom;   /* State space: Binomial coefficients for decoding/encoding. */
 mxArray *state_ptr; unsigned char *state;   /* State space: List of unique states of the world. */
-mxArray *impp_ptr; double *impp;            /* State space: Import price grid. */
+mxArray *pfor_ptr; double *pfor;            /* State space: Import price grid. */
 mxArray *mkt_ptr; double *mkt;              /* State space: Market size. */
 mxArray *mgc_ptr; double *mgc;              /* State space: Marginal cost vector (productivity). */
 
@@ -77,7 +77,6 @@ double etae1;                               /* Transition rates: Potential entra
 double etae2;                               /* Transition rates: Potential entrant entry (exponential spec). */
 unsigned char ie0;                          /* Transition rates and initial state: Potential entrant. */
 
-char matfile[STRLEN];                       /* Program control: MAT-file name. */
 char method[STRLEN];                        /* Program control: Iteration method. */
 int maxiter;                                /* Program control: Maximum number of iterations. */
 double tol;                                 /* Program control: Tolerance. */
@@ -86,17 +85,17 @@ double lambdaV;                             /* Program control: Weight of update
 double lambdax;                             /* Program control: Weight of updated investment policy. */
 double lambdap;                             /* Program control: Weight of updated pricing policy. */
 double lambday;                             /* Program control: Weight of updated entry/exit policy. */
-mxArray *info_ptr; double *info;            /* Program control: Performance information. */
 
 mxArray *V0_ptr; double *V0;				/* Starting values: Value function. */
 mxArray *x0_ptr; double *x0;				/* Starting values: Investment policy. */
 mxArray *p0_ptr; double *p0;                /* Starting values: Pricing policy. */
 mxArray *z0_ptr; double *z0;                /* Starting values: Exit/entry policy. */
 
-mxArray *V1_ptr; double *V1;                /* Value function. */
-mxArray *x1_ptr; double *x1;                /* Investment policy. */
-mxArray *p1_ptr; double *p1;                /* Pricing policy. */
-mxArray *z1_ptr; double *z1;                /* Entry/exit policy. */
+mxArray *info_ptr; double *info_;           /* Output: Performance information. */
+mxArray *V1_ptr; double *V1;                /* Output: Value function. */
+mxArray *x1_ptr; double *x1;                /* Output: Investment policy. */
+mxArray *p1_ptr; double *p1;                /* Output: Pricing policy. */
+mxArray *z1_ptr; double *z1;                /* Output: Entry/exit policy. */
 
 typedef struct focpar {                     /* Pricing policy: FOC parameters. */
     double low;                             /* FOC: Bracketing lower bound. */
@@ -104,7 +103,7 @@ typedef struct focpar {                     /* Pricing policy: FOC parameters. *
     unsigned char *inc;                     /* FOC: List of firms' states. */
     double cj;                              /* FOC: Marginal cost. */
     double dem;                             /* FOC: Demand. */
-    double p0;                              /* FOC: Current foreign price. */  
+    double pfor;                            /* FOC: Current foreign price. */  
     int j;                                  /* FOC: Firm being solved. */ 
     double *price;                          /* FOC: Current price vector. */ 
     double *dV;                             /* FOC: Vector of differences in value functions. */
@@ -114,15 +113,14 @@ typedef struct profitpar {                  /* Profit function parameters. */
     unsigned char *inc;                     /* Profit: List of firms' states. */
     double cj;                              /* Marginal cost. */
     double dem;                             /* Profit: Demand. */
-    double p0;                              /* Profit: Current foreign price. */  
+    double pfor;                            /* Profit: Current foreign price. */  
     int j;                                  /* Profit: Firm being solved. */ 
     double *price;                          /* Profit: Current price vector. */ 
 } profitpar; 
 
 /* Function prototypes. */
-void init(void);
+void init(const mxArray *prhs[]);
 void iterGS(void);
-void cleanup(void);
 void transdema(double *, unsigned char *, const unsigned char );
 void transincu(double *, unsigned char *, const unsigned char, const double, double, const double);
 void transentr(double *, unsigned char *, const double, const double, const unsigned char);
@@ -179,48 +177,48 @@ void copy(double *, const double *);
 /********************************************************************************/
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
-    	const char *methods[3] = {"GaussJacobiIteration", "GaussSeidelIteration", ""};
+    const char *methods[3] = {"GaussJacobiIteration", "GaussSeidelIteration", ""};
 	time_t start_time, stop_time;
 	double elapsed;
 
 	/* Check for proper number (and type) of arguments. */	
-    	if (nrhs != 1)
-	    mexErrMsgTxt("One input argument required."); 
-    	if ((!mxIsChar(prhs[0])) || mxIsEmpty(prhs[0]))
-	    mexErrMsgTxt("Input argument must be a nonempty string."); 
-    	if (nlhs > 0)
-	    mexErrMsgTxt("No output arguments allowed."); 
-
-
-	/* Obtain name of MAT-file. */
-	mxGetString(prhs[0], matfile, STRLEN);
+    if (nrhs != 1)
+	    mexErrMsgIdAndTxt( "MATLAB:compMPE:invalidNumInputs","One input required.");
+    if (!mxIsStruct(prhs[0]))
+        mexErrMsgIdAndTxt( "MATLAB:compMPE:inputNotStruct","Input must be a structure.");  
     
-    	/* Initialize. */
-    	init();
-    
-    	/* Starting time. */
-    	time(&start_time);
-    	mexPrintf("\nStarting time is %s", ctime(&start_time));
+    /* Initialize. */
+    init(prhs);
 
-    	/* Call value function iteration routine. */
-    	switch (match(methods, method)) {
-    	case 0:
-            mexErrMsgTxt("Gauss-Jacobi not implemented separately."); break;
-    	case 1:
-            iterGS(); break;
-    	default:
-	    mexErrMsgTxt("Iteration method not recognized."); break;
+    /* Starting time. */
+    time(&start_time);
+    /* mexPrintf("\nStarting time is %s", ctime(&start_time)); */
+
+    /* Call value function iteration routine. */
+    switch (match(methods, method)) {
+    case 0:
+        mexErrMsgIdAndTxt("MATLAB:compMPE:invalidMethod","Gauss-Jacobi not implemented separately."); break;
+    case 1:
+        iterGS(); break;
+    default:
+        mexErrMsgIdAndTxt("MATLAB:compMPE:invalidMethod","Iteration method not recognized."); break;
 	}
 
-    	/* Stopping time. */
-    	time(&stop_time);
-    	mexPrintf("\nStopping time is %s", ctime(&stop_time));
-    	elapsed = difftime(stop_time, start_time);
-    	mexPrintf("Elapsed time is %f min.\n", elapsed/60.0);
-
-	/* Clean up (write back to MAT-file). */
-	cleanup();
-
+    /* Stopping time. */
+    time(&stop_time);
+    /* mexPrintf("\nStopping time is %s", ctime(&stop_time)); */
+    elapsed = difftime(stop_time, start_time);
+    /* mexPrintf("Elapsed time is %f min.\n", elapsed/60.0); */
+    
+    /* Allocate output.
+     * This is better than writing to a file since it won't create problems
+     * when parallelizing. */  
+    plhs[0] = mxDuplicateArray(info_ptr); 
+    plhs[1] = mxDuplicateArray(V1_ptr);
+    plhs[2] = mxDuplicateArray(x1_ptr); 
+    plhs[3] = mxDuplicateArray(p1_ptr);
+    plhs[4] = mxDuplicateArray(z1_ptr);
+    
 	return;
 }
 
@@ -231,68 +229,63 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
 /* Initialize. 
  * Reads and assigns parameter values and structures from MATLAB. */
-void init(void)
+void init(const mxArray *prhs[])
 {
-    MATFile *mfp;
 	unsigned long s;
 
-	mexPrintf("\nInitializing...\n\n");
-
-    /* Open MAT-file. */
-    if ((mfp = matOpen(matfile, "r")) == NULL)
-        mexErrMsgIdAndTxt("", "Cannot open MAT-file %s.", matfile);
-    else
-        mexPrintf("Opening MAT-file %s.\n", matfile);
-
-    /* Get values of scalars. */
-    D = (unsigned char) checkparm(*mxGetPr(read(mfp, "D")), 1, DMAX, "D", "init");
-    N = (int) checkparm(*mxGetPr(read(mfp, "N")), 2, NMAX, "N", "init");
-    M = (unsigned char) checkparm(*mxGetPr(read(mfp, "M")), 1, UCHAR_MAX-1, "M", "init");
-	S = (unsigned long) checkparm(*mxGetPr(read(mfp, "S")), 1, ULONG_MAX, "S", "init");
-    rho = *mxGetPr(read(mfp, "rho"));
-    alpha = *mxGetPr(read(mfp, "alpha"));
-    Phi_hi  = *mxGetPr(read(mfp, "Phi_hi"));
-    Phi_lo  = *mxGetPr(read(mfp, "Phi_lo"));
-    Phie_hi = *mxGetPr(read(mfp, "Phie_hi"));
-    Phie_lo = *mxGetPr(read(mfp, "Phie_lo"));
-    alpha1 = *mxGetPr(read(mfp, "alpha1"));
-    alpha2 = *mxGetPr(read(mfp, "alpha2"));
-    delta = *mxGetPr(read(mfp, "delta"));
-    eta1 = *mxGetPr(read(mfp, "eta1"));
-    eta2 = *mxGetPr(read(mfp, "eta2"));
-    etax1 = *mxGetPr(read(mfp, "etax1"));
-    /* etaex2 = *mxGetPr(read(mfp, "etax2")); */
-    etae1 = *mxGetPr(read(mfp, "etae1"));
-    /* etae2 = *mxGetPr(read(mfp, "etae2")); */
-    ie0 = (unsigned char) checkparm(*mxGetPr(read(mfp, "ie0")), 1, M, "ie0", "init");
-    dsize = (unsigned char) *mxGetPr(read(mfp, "dsize"));
-    p0size = (unsigned char) *mxGetPr(read(mfp, "p0size"));
+	/* mexPrintf("\nInitializing...\n\n"); */
     
-    /* Get program control parameters */
-    maxiter = (int) *mxGetPr(read(mfp, "maxiter"));
-    tol = *mxGetPr(read(mfp, "tol"));
-    steps = (int) *mxGetPr(read(mfp, "steps"));
-	lambdaV = *mxGetPr(read(mfp, "lambdaV"));
-    lambdax = *mxGetPr(read(mfp, "lambdax"));
-    lambdap = *mxGetPr(read(mfp, "lambdap"));
-    lambday = *mxGetPr(read(mfp, "lambday"));
+    /* Get parameters and objects from input structure. 
+     * In the future include warnings for potential errors when reading 
+     * the structure (empty, types, etc.). */
     
-    /* Get values of strings. */
-    mxGetString(read(mfp, "method"), method, STRLEN);
-
-    /* Get pointers to matlab variables and to the data structures contained in them. */
-    binom_ptr = read(mfp, "binom"); binom = (unsigned long*) mxGetData(binom_ptr);
-    state_ptr = read(mfp, "state"); state = (unsigned char*) mxGetData(state_ptr);
-    trans_ptr = read(mfp, "trans"); trans = mxGetPr(trans_ptr);
+    /* Scalars. */
+    D = (unsigned char) checkparm(*mxGetPr(mxGetField(prhs[0],0,"D")), 1, DMAX, "D", "init");
+    N = (int) checkparm(*mxGetPr(mxGetField(prhs[0],0,"N")), 2, NMAX, "N", "init");
+    M = (unsigned char) checkparm(*mxGetPr(mxGetField(prhs[0],0,"M")), 1, UCHAR_MAX-1, "M", "init");
+	S = (unsigned long) checkparm(*mxGetPr(mxGetField(prhs[0],0,"S")), 1, ULONG_MAX, "S", "init");        
+    rho = *mxGetPr(mxGetField(prhs[0],0,"rho")); 
+    alpha = *mxGetPr(mxGetField(prhs[0],0,"alpha"));
+    Phi_hi  = *mxGetPr(mxGetField(prhs[0],0,"Phi_hi"));
+    Phi_lo  = *mxGetPr(mxGetField(prhs[0],0,"Phi_lo"));
+    Phie_hi = *mxGetPr(mxGetField(prhs[0],0,"Phie_hi"));
+    Phie_lo = *mxGetPr(mxGetField(prhs[0],0,"Phie_lo"));
+    alpha1 = *mxGetPr(mxGetField(prhs[0],0,"alpha1"));
+    alpha2 = *mxGetPr(mxGetField(prhs[0],0,"alpha2"));
+    delta = *mxGetPr(mxGetField(prhs[0],0,"delta"));
+    eta1 = *mxGetPr(mxGetField(prhs[0],0,"eta1"));
+    eta2 = *mxGetPr(mxGetField(prhs[0],0,"eta2"));
+    etax1 = *mxGetPr(mxGetField(prhs[0],0,"etax1"));
+    etax2 = *mxGetPr(mxGetField(prhs[0],0,"etax2"));
+    etae1 = *mxGetPr(mxGetField(prhs[0],0,"etae1"));
+    etae2 = *mxGetPr(mxGetField(prhs[0],0,"etae2")); 
+    ie0 = (unsigned char) checkparm(*mxGetPr(mxGetField(prhs[0],0,"ie0")), 1, M, "ie0", "init");
+    dsize = (unsigned char) *mxGetPr(mxGetField(prhs[0],0,"dsize"));
+    p0size = (unsigned char) *mxGetPr(mxGetField(prhs[0],0,"p0size"));
     
-    mgc_ptr = read(mfp, "mgc"); mgc = mxGetPr(mgc_ptr);
-    impp_ptr = read(mfp, "p0vec"); impp = mxGetPr(impp_ptr);
-    mkt_ptr = read(mfp, "mkt"); mkt = mxGetPr(mkt_ptr);
+    /* Program control parameters. */
+    maxiter = (int) *mxGetPr(mxGetField(prhs[0],0,"maxiter"));
+    tol = *mxGetPr(mxGetField(prhs[0],0,"tol"));
+    steps = (int) *mxGetPr(mxGetField(prhs[0],0,"steps"));
+	lambdaV = *mxGetPr(mxGetField(prhs[0],0,"lambdaV"));
+    lambdax = *mxGetPr(mxGetField(prhs[0],0,"lambdax"));
+    lambdap = *mxGetPr(mxGetField(prhs[0],0,"lambdap"));
+    lambday = *mxGetPr(mxGetField(prhs[0],0,"lambday"));
+    mxGetString(mxGetField(prhs[0],0,"method"), method, STRLEN);
 
-    V0_ptr = read(mfp, "V0"); V0 = mxGetPr(V0_ptr);
-    x0_ptr = read(mfp, "x0"); x0 = mxGetPr(x0_ptr);
-    p0_ptr = read(mfp, "p0"); p0 = mxGetPr(p0_ptr);
-    z0_ptr = read(mfp, "y0"); z0 = mxGetPr(z0_ptr);
+    /* Arrays (matrices). */
+    binom_ptr = mxGetField(prhs[0],0,"binom"); binom = (unsigned long*) mxGetData(binom_ptr);
+    state_ptr = mxGetField(prhs[0],0,"state"); state = (unsigned char*) mxGetData(state_ptr);
+    trans_ptr = mxGetField(prhs[0],0,"trans"); trans = mxGetPr(trans_ptr);
+    
+    mgc_ptr = mxGetField(prhs[0],0,"mgc"); mgc = mxGetPr(mgc_ptr);
+    pfor_ptr = mxGetField(prhs[0],0,"pfor"); pfor = mxGetPr(pfor_ptr);
+    mkt_ptr = mxGetField(prhs[0],0,"mkt"); mkt = mxGetPr(mkt_ptr);
+
+    V0_ptr = mxGetField(prhs[0],0,"V0"); V0 = mxGetPr(V0_ptr);
+    x0_ptr = mxGetField(prhs[0],0,"x0"); x0 = mxGetPr(x0_ptr);
+    p0_ptr = mxGetField(prhs[0],0,"p0"); p0 = mxGetPr(p0_ptr);
+    z0_ptr = mxGetField(prhs[0],0,"y0"); z0 = mxGetPr(z0_ptr);
     
     #ifdef GJ
     V1_ptr = mxDuplicateArray(V0_ptr); V1 = mxGetPr(V1_ptr);
@@ -305,15 +298,10 @@ void init(void)
     p1_ptr = p0_ptr; p1 = mxGetPr(p1_ptr);
     z1_ptr = z0_ptr; z1 = mxGetPr(z1_ptr);
     #endif
+
+    /* Create solution info matrix. */ 
+    info_ptr = mxCreateDoubleMatrix(1,6,mxREAL); info_ = mxGetPr(info_ptr);
     
-    info_ptr = mxCreateDoubleMatrix(1, 6 , mxREAL); info_ = mxGetPr(info_ptr);
-
-    /* Close MAT-file. */
-    if (matClose(mfp) != 0)
-        mexErrMsgIdAndTxt("", "Cannot close MAT-file %s.", matfile);
-    else
-        mexPrintf("Closing MAT-file %s.\n", matfile);
-
 	/* More error checking: States of the world must be sorted and within range. */
 	/* for (s=0; s<S; s++) 
 		checkstate(lookup_state(s), "init");*/
@@ -342,11 +330,13 @@ void iterGS(void)
     signed char die;
     double p0state, dstate, cj, q, sh, d, pstar;
     
+    /*
     #ifdef GJ
     mexPrintf("\nIterating (Gauss-Jacobi)...\n\n");
     #else
     mexPrintf("\nIterating (Gauss-Seidel)...\n\n");
     #endif
+    */
     
     /* If iterating Gauss-Jacobi: copy initial values. */
     #ifdef GJ
@@ -391,7 +381,7 @@ void iterGS(void)
 		drctn *= -1;
 		#endif
 		for (cntr=0; s=(drctn>0) ? cntr : S-cntr-1, cntr<S; cntr++) {
-            
+            /* mexPrintf("State is %d-%d\n",s,iter); */
             /* Preallocate arrays with zeros. */
             memset(alldiff, 0, (NMAX+1)*sizeof(double));
             memset(pfoc, 0, (NMAX+1)*sizeof(double));
@@ -403,7 +393,7 @@ void iterGS(void)
 			di = lookup_state(s);
             
             dstate = mkt[agg[di[0]][0]-1];
-            p0state = impp[agg[di[0]][1]-1];
+            p0state = pfor[agg[di[0]][1]-1];
             
 			/* Store value and policy functions (previous iteration). */
             #ifdef GJ
@@ -418,11 +408,11 @@ void iterGS(void)
             memcpy(y_, lookup_y0(s), (NMAX+1)*sizeof(double));
             #endif
             
-	/* Lookup value and policy functions. */
+            /* Lookup value and policy functions. */
             /* These are pointers to the mxArrays to be written back to MATLAB. */
 			V = lookup_V1(s);
 			x = lookup_x1(s);
-            	        p = lookup_p1(s);
+            p = lookup_p1(s);
 			y = lookup_y1(s);
 
 			/* Compute transition rates (demand state). */
@@ -469,7 +459,7 @@ void iterGS(void)
                         .inc   = di,                            /* FOC: List of firm states. */
                         .cj    = cj,                            /* FOC: Marginal cost. */
                         .dem   = dstate,                        /* FOC: Demand. */
-                        .p0    = p0state,                       /* FOC: Current foreign price. */  
+                        .pfor  = p0state,                       /* FOC: Current foreign price. */  
                         .j     = n,                             /* FOC: Firm being solved. */ 
                         .price = p,                             /* FOC: Current price vector. */ 
                         .dV    = alldiff,                       /* FOC: Value function differences. */
@@ -561,7 +551,7 @@ void iterGS(void)
                         .inc = di,
                         .cj  = cj,                         
                         .dem = dstate,                            
-                        .p0  = p0state, 
+                        .pfor= p0state, 
                         .price = p,                           
                     };
                     profits[n] = makeprofits(n, &prof_par);
@@ -602,7 +592,7 @@ void iterGS(void)
 	            /* Obtain unique state. */
 				di = lookup_state(s);
                 dstate = mkt[agg[di[0]][0]-1];
-                p0state = impp[agg[di[0]][1]-1];
+                p0state = pfor[agg[di[0]][1]-1];
 
 				/* Lookup value and policy functions and current profit. */
 				V = lookup_V1(s);
@@ -684,7 +674,7 @@ void iterGS(void)
                             .inc = di,
                             .cj  = cj,                         
                             .dem = dstate,                            
-                            .p0  = p0state, 
+                            .pfor= p0state, 
                             .price = p,                          
                         };
                         profits[n] = makeprofits(n, &prof_par);
@@ -706,9 +696,11 @@ void iterGS(void)
         }   /* for (st=0; st<steps; st++) */
 
         /* Tolerances. */
+        /* 
         if (iter-(maxiter/5)*(iter/(maxiter/5))==0)
             mexPrintf("Iteration %d: tol(V, x, p, y)=(%g, %g, %g, %g).\n", iter, tolV, tolx, tolp, toly);
-
+        */
+        
         /* Done? */
         if ((tolV < tol) && (tolx < tol) && (tolp < tol) && (toly < tol)) {
             mexPrintf("Converged!\n");
@@ -716,6 +708,7 @@ void iterGS(void)
             done = 1;
         } else if (iter >= maxiter) {
             mexPrintf("Maximum number of iterations reached!\n");
+            mexPrintf("Iteration %d: tol(V, x, p, y)=(%g, %g, %g, %g).\n", iter, tolV, tolx, tolp, toly);
             done = 2;
         }
 
@@ -737,8 +730,8 @@ void iterGS(void)
     info_[0] = (double) done;
     info_[1] = (double) iter;
     info_[2] = tolV;
-    info_[3] = tolx;
-    info_[4] = tolp;
+    info_[3] = tolp;
+    info_[4] = tolx;
     info_[5] = toly;
 
     /* Free memory of structures. */
@@ -753,42 +746,9 @@ void iterGS(void)
 }
 
 
-/* Clean up. 
- * Writes value and policy functions and convergence info back to MATLAB. */
-void cleanup(void)
-{
-    MATFile *mfp;
-
-    mexPrintf("\nCleaning up...\n\n"); 
-
-    /* Open MAT-file. */
-    if ((mfp = matOpen(matfile, "u")) == NULL)
-        mexErrMsgIdAndTxt("", "Cannot open MAT-file %s.", matfile);
-    else
-        mexPrintf("Opening MAT-file %s.\n", matfile);
-
-    /* Put pointers to matlab variables. */
-    write(mfp, "V1", V1_ptr);
-    write(mfp, "x1", x1_ptr);
-    write(mfp, "p1", p1_ptr);
-    write(mfp, "y1", z1_ptr);
-    write(mfp, "info_", info_ptr);
-
-    /* Close MAT-file. */
-    if (matClose(mfp) != 0)
-        mexErrMsgIdAndTxt("", "Cannot close MAT-file %s.", matfile);
-    else
-        mexPrintf("Closing MAT-file %s.\n", matfile);
-
-    return;
-}
-
-
-
 /**************************************************************************
  *                  Auxiliary function definitions.                        
  *************************************************************************/
-
 
 
 /**************************************************************************
@@ -801,13 +761,15 @@ void cleanup(void)
 double hazlbd(const double q)
 {
     double h = eta1*q/(1+eta1*q);
+    /* double h = eta1*pow(q,eta2); */
     return h;
 }
 /* hazlbdprime.
  * Compute derivative of hazard of LBD-productivity jump. */
 double hazlbdprime(const double q)
 {
-    double hq = eta1/pow(1+eta1*q,2);
+    double hq = eta1/pow(1+eta1*q,2); 
+    /* double hq = eta2*eta1*pow(q,eta2-1); */
     return hq;
 }
 /* hazrd.
@@ -817,14 +779,14 @@ double hazrd(const double x)
     double h = alpha1*pow(x,alpha2);
     return h;
 }
-/* hazlbd.
+/* hazex.
  * Compute hazard of exiting. */
 double hazex(const double y)
 {
     double h = etax1*y;
     return h;
 }
-/* hazlbd.
+/* hazen.
  * Compute hazard of exiting. */
 double hazen(const double y)
 {
@@ -914,11 +876,11 @@ double pstarfind(focpar par_arg)
     double maxf;                                       /* Objective value. */
 
     if (nlopt_optimize(opt, x, &maxf) < 0) {
-        /* printf("NLopt failed!\n"); */
-        out = 99;
+        printf("NLopt failed!\n");
+        out = 10.0;
     }
     else {
-        /* printf("Max. founf at f(%g) = %0.10g\n", x[0], maxf); */
+        /* printf("Max. found at f(%g) = %0.10g\n", x[0], maxf); */
         out = x[0];
     }
     
@@ -940,7 +902,7 @@ double foc(double x, void *param)
     
     focpar *par   = (focpar *) param;
     unsigned char *inc = par->inc;
-    double p_0    = par->p0;
+    double p_0    = par->pfor;
     double cj     = par->cj;
     double dem    = par->dem;
     int j         = par->j;
@@ -982,7 +944,7 @@ double price_obj(unsigned n, const double *x, double *grad, void *param)
     
     focpar *par   = (focpar *) param;
     unsigned char *inc = par->inc;
-    double p_0    = par->p0;
+    double p_0    = par->pfor;
     double cj     = par->cj;
     double dem    = par->dem;
     int j         = par->j;
@@ -1034,7 +996,7 @@ double makeprofits(int j, profitpar *params)
     double d, s;
     unsigned char *inc = params->inc;
     double dem = params->dem;
-    double p_0 = params->p0;
+    double p_0 = params->pfor;
     double cj  = params->cj;
     double *pp = params->price;
     
@@ -1409,15 +1371,18 @@ mxArray *read(MATFile *mfp, const char *var_name)
     if ((array_ptr = matGetVariable(mfp, var_name)) == NULL)
         mexErrMsgIdAndTxt("", "Cannot read matlab variable %s.", var_name); 
 
-    if ((mxGetNumberOfElements(array_ptr) == 1) && mxIsNumeric(array_ptr))
-        mexPrintf("Reading matlab variable %s=%g.\n", var_name, mxGetScalar(array_ptr));
+    if ((mxGetNumberOfElements(array_ptr) == 1) && mxIsNumeric(array_ptr)) {
+        /* mexPrintf("Reading matlab variable %s=%g.\n", var_name, mxGetScalar(array_ptr)); */
+        mxGetScalar(array_ptr);
+    }
     else {        
-        mexPrintf("Reading matlab variable %s (", var_name);
+        /* mexPrintf("Reading matlab variable %s (", var_name);*/
         from = mxGetDimensions(array_ptr);
         to = from+mxGetNumberOfDimensions(array_ptr)-1;
-        for (; from<to; from++)
+        /* for (; from<to; from++)
             mexPrintf("%dx", *from);
         mexPrintf("%d).\n", *from);
+         */
     }
 
     return array_ptr;
@@ -1435,15 +1400,18 @@ void write(MATFile *mfp, const char *var_name, const mxArray *array_ptr)
     if (matPutVariable(mfp, var_name, array_ptr) != 0)
         mexErrMsgIdAndTxt("", "Cannot write matlab variable %s.", var_name); 
 
-    if ((mxGetNumberOfElements(array_ptr) == 1) && mxIsNumeric(array_ptr))
-        mexPrintf("Writing matlab variable %s=%f.\n", var_name, mxGetScalar(array_ptr));
+    if ((mxGetNumberOfElements(array_ptr) == 1) && mxIsNumeric(array_ptr)) {
+        /*mexPrintf("Writing matlab variable %s=%f.\n", var_name, mxGetScalar(array_ptr));*/
+        mxGetScalar(array_ptr);
+    }
     else {        
-        mexPrintf("Writing matlab variable %s (", var_name);
+        /* mexPrintf("Writing matlab variable %s (", var_name); */
         from = mxGetDimensions(array_ptr);
         to = from+mxGetNumberOfDimensions(array_ptr)-1;
-        for (; from<to; from++)
+        /* for (; from<to; from++)
             mexPrintf("%dx", *from);
         mexPrintf("%d).\n", *from);
+         */
     }
 
     return;

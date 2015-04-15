@@ -1,12 +1,12 @@
 function [np,nv] = init(par)
 
-state = par.state;
+state = double(par.state);
 agg   = par.agg;
 alpha = par.alpha;
 rho   = par.rho;
 mkt   = par.mkt;
 mgc   = par.mgc;
-p0vec = par.p0vec;
+pfor  = par.pfor;
 N     = par.N;
 S     = par.S;
 M     = par.M;
@@ -25,7 +25,7 @@ for s = 1:S
     
     if Nstar>0
         c  = mgc(di(2:Nstar+1));
-        p0 = p0vec(agg(di(1),2));
+        p0 = pfor(agg(di(1),2));
         % Check we are working with (Nx1) vectors.
         if size(c,2)~=1
             c = c';
