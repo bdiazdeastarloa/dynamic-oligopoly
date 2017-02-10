@@ -1,32 +1,38 @@
-function plotpol(file,sol)
+function plotpol(par,sol)
 
 % =========================================================================
 % Dynamic oligopoly.
 % Continuous time version.
 %
-% plotpol: plot policy functions for different industry configurations. 
-% 'file' is the file containing parameter values.
+% plotpol
+%
+% Plot policy functions for different industry configurations. 
+% 'par' is the file containing parameter values.
 % 'sol' is the file containing the solution to be plotted.
 %
 % Written by Bernardo Diaz de Astarloa @ PSU 2015 based on code by Uli
 % Doraszleski. (Optimized for speed.)
 % =========================================================================
 
-load(file);
 load(sol);
+load(par);
 close all
+
+% Assign parameters.
+binom = double(par.binom); 
+N     = par.N;
+M     = par.M;
+D     = par.D;
+S     = par.S;
+mgc   = par.mgc;
 
 % Set 3D plots on(1)/off(0);
 plot3d = 1;
 
-% Convert to double.
-binom = double(binom); %#ok
-state = double(state); %#ok
-
-% Round entry/exit to zero if extremely low.
+% Round values to zero if extremely low.
 err = 1e-25;
 y1(y1<err) = 0.0;      %#ok
-
+V1(V1<err) = 0.0;      %#ok
 
 %% Plot value functions and policy for different industry configurations.
 
@@ -73,7 +79,8 @@ for d=1:D
     [code,pos] = allencode(die,binom,N,D); inde3(d,:) = sub2ind([N,S],pos(1,:),code);
 end
 
-% Do plots.
+
+%% Do plots.
 %
 for d=1:D
     for Nstar=1:N

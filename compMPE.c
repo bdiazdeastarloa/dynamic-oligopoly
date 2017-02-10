@@ -21,21 +21,21 @@
 #include <limits.h>
 #include <stdarg.h>
 /* Load GSL libraries for root-finding routine. */
-/* Un-comment this ifdef FOCNODERIV
+/* Un-comment this ifdef FOCNODERIV. */
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_roots.h>
-*/
+
 /* Load NLopt library for optimization routine. */
-/* Un-comment this ifdef FOCDERIV */
-#include <nlopt.h>
+/* Un-comment this ifdef FOCDERIV. */
+/* #include <nlopt.h> */
 
 /* Compiler directives. To be modified by user. */
 #define NMAX 10                             /* Max. # of firms allowed in the market. */
 #define DMAX 20                             /* Max. # of commons states allowed. */
 /* #define GJ 1 */                                /* Iteration method: Gauss-Jacobi. */
-#define FOCDERIV 1                          /* Use NLopt, derivative-based. */
-/* #define FOCNODERIV 1 */                        /*Use GSL: bracke ting-based. */
+/* #define FOCDERIV 1 */                         /* Use NLopt, derivative-based. */
+#define FOCNODERIV 1                        /*Use GSL: bracke ting-based. */
 /* #define BUBBLE */
 /* #define BACKWARD */
 /* #define ALTERNATING */
@@ -86,6 +86,11 @@ double lambdax;                             /* Program control: Weight of update
 double lambdap;                             /* Program control: Weight of updated pricing policy. */
 double lambday;                             /* Program control: Weight of updated entry/exit policy. */
 
+mxArray *V0_temp;             				/* Starting values: Value function. */
+mxArray *x0_temp;            				/* Starting values: Investment policy. */
+mxArray *p0_temp;                           /* Starting values: Pricing policy. */
+mxArray *z0_temp;                           /* Starting values: Exit/entry policy. */
+
 mxArray *V0_ptr; double *V0;				/* Starting values: Value function. */
 mxArray *x0_ptr; double *x0;				/* Starting values: Investment policy. */
 mxArray *p0_ptr; double *p0;                /* Starting values: Pricing policy. */
@@ -129,6 +134,7 @@ double makeprofits(int , profitpar *);
 
 /* Hazard rates functional form definitions. */
 double hazlbd(const double);
+double hazlbdprime(const double);
 double hazrd(const double);
 double hazex(const double);
 double hazen(const double);
@@ -282,10 +288,17 @@ void init(const mxArray *prhs[])
     pfor_ptr = mxGetField(prhs[0],0,"pfor"); pfor = mxGetPr(pfor_ptr);
     mkt_ptr = mxGetField(prhs[0],0,"mkt"); mkt = mxGetPr(mkt_ptr);
 
-    V0_ptr = mxGetField(prhs[0],0,"V0"); V0 = mxGetPr(V0_ptr);
-    x0_ptr = mxGetField(prhs[0],0,"x0"); x0 = mxGetPr(x0_ptr);
-    p0_ptr = mxGetField(prhs[0],0,"p0"); p0 = mxGetPr(p0_ptr);
-    z0_ptr = mxGetField(prhs[0],0,"y0"); z0 = mxGetPr(z0_ptr);
+    /* Get pointers to initial values in par structure. */
+    V0_temp = mxGetField(prhs[0],0,"V0"); 
+    x0_temp = mxGetField(prhs[0],0,"x0"); 
+    p0_temp = mxGetField(prhs[0],0,"p0"); 
+    z0_temp = mxGetField(prhs[0],0,"y0"); 
+    
+    /* Create copies of initial values so as not to overwrite them. */
+    V0_ptr = mxDuplicateArray(V0_temp); V0 = mxGetPr(V0_ptr);
+    x0_ptr = mxDuplicateArray(x0_temp); x0 = mxGetPr(x0_ptr);
+    p0_ptr = mxDuplicateArray(p0_temp); p0 = mxGetPr(p0_ptr);
+    z0_ptr = mxDuplicateArray(z0_temp); z0 = mxGetPr(z0_ptr);  
     
     #ifdef GJ
     V1_ptr = mxDuplicateArray(V0_ptr); V1 = mxGetPr(V1_ptr);
@@ -373,6 +386,7 @@ void iterGS(void)
 	#endif
     
     /* Start iterative procedure. */
+    /* mexPrintf("\nStart iterative procedure...\n\n"); */
     while (!done) {
     	
         /* Starts with a 'for' loop to cycle through states, which includes 
@@ -419,6 +433,7 @@ void iterGS(void)
 			transdema(rates[0], nz[0], di[0]);
             
 			/* Compute optimal policy. */
+            /* mexPrintf("\nComputing optimal policies...\n\n"); */
 			for (n=1; n<=N; n++) {
 				/* Done that before? Enforce symmetry and anonymity. */
 				if ((n>1) && (di[n]==di[n-1])) {
@@ -434,16 +449,19 @@ void iterGS(void)
 				} else if (di[n] < M+1) {
                   
 					/* Compute optimal investment policy. */
+                    /* mexPrintf("Computing investment policy... \n"); */
 					x[n] = 0.0;
 					if (di[n] < M) {
 						memcpy(dip, di, (NMAX+1)*sizeof(unsigned char));
 						change(dip, n, di[n]+1, pos);           
 						Vup = lookup_V1(encode(dip));
 						if ((diff = Vup[pos[n]]-V[n]) > 0.0)
+                            /* x[n] = (1/alpha2)*( -1 + pow(alpha2*diff,0.5) ); */
 							x[n] = pow(alpha1*alpha2*diff,1.0/(1.0-alpha2));
 					}
 
                     /* Compute pricing policy. */
+                    /* mexPrintf("Computing pricing policy... \n"); */
                     /* Compute deltaVs = Vup - V. */
                     /* (Given incumbent n, all other incumbents k increasing w. */
                     for (k=1; k<=N && di[k]<M; k++) {
@@ -454,8 +472,8 @@ void iterGS(void)
                     }
                     cj = mgc[di[n]-1];
                     focpar par_arg = {
-                        .low   = -20,                           /* FOC: Bracketing lower bound. */    
-                        .high  = 200,                           /* FOC: Bracketing upper bound. */
+                        .low   = -1,                           /* FOC: Bracketing lower bound. */    
+                        .high  = 25,                           /* FOC: Bracketing upper bound. */
                         .inc   = di,                            /* FOC: List of firm states. */
                         .cj    = cj,                            /* FOC: Marginal cost. */
                         .dem   = dstate,                        /* FOC: Demand. */
@@ -633,7 +651,6 @@ void iterGS(void)
 
 					/* Potential entrant. */
 					} else {
-                        
                         k=1;
                         while (di[k]<M || k==N)
                             k++;
@@ -760,16 +777,16 @@ void iterGS(void)
  * Compute hazard of LBD-productivity jump. */
 double hazlbd(const double q)
 {
-    double h = eta1*q/(1+eta1*q);
-    /* double h = eta1*pow(q,eta2); */
+    /* double h = eta1*q/(10+eta1*q); */
+    double h = eta1*pow(q,eta2);
     return h;
 }
 /* hazlbdprime.
  * Compute derivative of hazard of LBD-productivity jump. */
 double hazlbdprime(const double q)
 {
-    double hq = eta1/pow(1+eta1*q,2); 
-    /* double hq = eta2*eta1*pow(q,eta2-1); */
+    /* double hq = eta1/pow(10+eta1*q,2); */
+    double hq = eta2*eta1*pow(q,eta2-1);
     return hq;
 }
 /* hazrd.
@@ -777,6 +794,7 @@ double hazlbdprime(const double q)
 double hazrd(const double x)
 {
     double h = alpha1*pow(x,alpha2);
+    /* double h = alpha2*x/(1+alpha2*x); */
     return h;
 }
 /* hazex.
@@ -812,41 +830,49 @@ double hazen(const double y)
 #ifdef FOCNODERIV
 double pstarfind(focpar par_arg)
 {
-  int status;
-  double error=99.0;
-  int iter = 0, max_iter = 100;
-  const gsl_root_fsolver_type *T;                       /* Pointer to solver type */
-  gsl_root_fsolver *solv;                               /* Pointer to solver */
-  double r = 0;                                         /* Initialize root */
-  double p_lo = par_arg.low, p_hi = par_arg.high;       /* Define bounds */
-  
-  gsl_function F;                           
-  F.function = &foc;
-  F.params = &par_arg;
-  
-  /* Assign solver type, allocate and initialize */
-  T = gsl_root_fsolver_brent;              
-  solv = gsl_root_fsolver_alloc(T);
-  gsl_root_fsolver_set(solv, &F, p_lo, p_hi); 
-  
-  /* Start iterations */  
-  do
-    {
-      iter++;
-      status = gsl_root_fsolver_iterate(solv);  /* Perform an iteration */ 
-      r = gsl_root_fsolver_root(solv);          /* Current estimate of root */
-      p_lo = gsl_root_fsolver_x_lower(solv);    /* Current estimate of lower bound */ 
-      p_hi = gsl_root_fsolver_x_upper(solv);    /* Current estimate of upper bound */ 
+    gsl_set_error_handler_off();                          /* Disable abort when error. */
+    
+    int status;
+    double error=99.0;
+    int iter = 0, max_iter = 100;
+    const gsl_root_fsolver_type *T;                       /* Pointer to solver type */
+    gsl_root_fsolver *solv;                               /* Pointer to solver */
+    double r = 0;                                         /* Initialize root */
+    double p_lo = par_arg.low, p_hi = par_arg.high;       /* Define bounds */
 
-      /* Test for convergence */
-      status = gsl_root_test_interval(p_lo, p_hi, 0, 1e-6);
+    gsl_function F;                           
+    F.function = &foc;
+    F.params = &par_arg;
+
+    /* Assign solver type, allocate and initialize */
+    T = gsl_root_fsolver_brent;              
+    solv = gsl_root_fsolver_alloc(T);
+    status = gsl_root_fsolver_set(solv, &F, p_lo, p_hi); 
+    /* Check if bounds contain root (bisection/brent). */
+    if (status == GSL_EINVAL) {
+        p_lo = -50;
+        p_hi = 500;
+        gsl_root_fsolver_set(solv, &F, p_lo, p_hi);
     }
-  while (status == GSL_CONTINUE && iter < max_iter);
+    
+    /* Start iterations */  
+    do
+    {
+        iter++;
+        status = gsl_root_fsolver_iterate(solv);  /* Perform an iteration */ 
+        r = gsl_root_fsolver_root(solv);          /* Current estimate of root */
+        p_lo = gsl_root_fsolver_x_lower(solv);    /* Current estimate of lower bound */ 
+        p_hi = gsl_root_fsolver_x_upper(solv);    /* Current estimate of upper bound */ 
 
-  return r;
-  
-  /* Free memory */
-  gsl_root_fsolver_free(solv);                     
+        /* Test for convergence */
+        status = gsl_root_test_interval(p_lo, p_hi, 0, 1e-7);
+    }
+    while (status == GSL_CONTINUE && iter < max_iter);
+
+    return r;
+
+    /* Free memory */
+    gsl_root_fsolver_free(solv);                     
 }
 #endif
 
@@ -856,15 +882,17 @@ double pstarfind(focpar par_arg)
 #ifdef FOCDERIV
 double pstarfind(focpar par_arg)
 {
-    double lb[1]; 
-    lb[0] = -200;                                      /* Lower bound. */
-    double tol_x = 1e-5;                               /* Convergence tolerance. */
+    double lb = -10;                                   /* Lower bound. */
+    double ub = 20;                                    /* Upper bound. */ 
+    double tol_x = 1e-6;                               /* Convergence tolerance. */
     double out;
     
     /* Algorithm and dimensionality. */
-    nlopt_opt opt= nlopt_create(NLOPT_LD_MMA, 1);
+    /* nlopt_opt opt= nlopt_create(NLOPT_LD_MMA, 1); */
+    nlopt_opt opt= nlopt_create(NLOPT_LN_BOBYQA, 1);
     /* Set bounds (upper bound not needed). */
-    nlopt_set_lower_bounds(opt, lb);
+    nlopt_set_lower_bounds1(opt, lb);
+    nlopt_set_upper_bounds1(opt, ub);
     /* Assign objective function to maximize. */
     nlopt_set_max_objective(opt, price_obj, &par_arg);    
     /* Assign tolerances. */
@@ -872,15 +900,20 @@ double pstarfind(focpar par_arg)
     
     /* Start optimization. */
     double x[1];                                       /* Initial guess. */
-    x[0] = 2;
+    x[0] = 10;
     double maxf;                                       /* Objective value. */
 
-    if (nlopt_optimize(opt, x, &maxf) < 0) {
-        printf("NLopt failed!\n");
-        out = 10.0;
+    double out_res = nlopt_optimize(opt, x, &maxf); 
+    if (out_res < 0) {
+        printf("Exitflag %g\n", out_res);
+        if (out_res==-4) {
+            out = x[0];
+        } else {
+            out = 10;
+        }
     }
     else {
-        /* printf("Max. found at f(%g) = %0.10g\n", x[0], maxf); */
+        /* printf("Max. found at f(%g) = %g\n", x[0], maxf); */
         out = x[0];
     }
     
@@ -891,14 +924,13 @@ double pstarfind(focpar par_arg)
 }
 #endif
 
-
 /* foc. 
  * Compute first order condition for pricing policy. 
  * Input to GSL root-finding function. */
 double foc(double x, void *param)
 {
     int i;
-    double d, q, hsV, s[NMAX+1], pp[NMAX+1], hq[NMAX+1];
+    double d, hsV, q[NMAX+1], s[NMAX+1], pp[NMAX+1], hq[NMAX+1];
     
     focpar *par   = (focpar *) param;
     unsigned char *inc = par->inc;
@@ -911,22 +943,22 @@ double foc(double x, void *param)
     
     /* Need to create local copy not to modify last iteration's price. */
     for (i=1; i<=N; i++) {
+        q[i]  = 0.0;
+        s[i]  = 0.0;
+        hq[i] = 0.0;
         pp[i] = *(price+i);
-        hq[i] = 0;
-        s[i]  = 0;
     }
     pp[j] = x;
     d = 0.0;
     hsV = 0.0;
-    q = 0;
     /* Compute denominator of mkt shares. */
     for (i=1; i<=N && inc[i]<M+1; i++) 
         d += exp((-alpha)*(pp[i] - p_0));
-   /* Compute market shares and sum of DVs. */
+      /* Compute market shares, hazards and sum of deltaVs. */
     for (i=1; i<=N && inc[i]<M+1; i++) { 
         s[i] = exp((-alpha)*(pp[i] - p_0))/(1+d);
-        q    = dem*s[i];
-        hq[i] = hazlbd(q);
+        q[i] = s[i]*dem;
+        hq[i] = hazlbdprime(q[i]);
         hsV += hq[i]*(s[i])*(diff_[i]);
     }
     
@@ -979,6 +1011,7 @@ double price_obj(unsigned n, const double *x, double *grad, void *param)
     
     /* Assign gradient. */
     if (grad) {
+        grad[0] = 0;
         grad[0] = (1/alpha) - (1-s[j])*(pp[j]-cj) - hq[j]*(diff_[j]) + hsV1;
     }
     /* Return objective function. */

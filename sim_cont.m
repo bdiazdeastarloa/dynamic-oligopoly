@@ -21,8 +21,8 @@ p0vec  = par.pfor;
 mkt    = par.mkt;
 mgc    = par.mgc;
 Q      = par.trans/par.gamma;      % aggregate state transition matrix
-F = N*2;                           % max number of firms in history
-TT = T*20;                         % max number of jumps in history
+F = N*10;                          % max number of firms in history
+TT = T*100;                        % max number of jumps in history
 
 times_c = zeros(TT,1);             % arrival times
 fprod_c = zeros(TT,F);             % firms' productivities
@@ -32,21 +32,24 @@ exit_c  = zeros(TT,1);             % exit events
 entry_c = zeros(TT,1);             % entry events
 p0_c    = zeros(TT,1);             % outside good price
 q0_c    = zeros(TT,1);             % outside good quantity
-d_c     = zeros(TT,1);             % outside good price
+d_c     = zeros(TT,1);             % aggregate demand
 q_c     = zeros(TT,F);             % firms' quantities
-rev_c   = zeros(TT,F);             % f irms' revenues
+rev_c   = zeros(TT,F);             % firms' revenues
 mgc_c   = zeros(TT,F);             % firms' marginal cost
 pij_c   = zeros(TT,F);             % firms' profits
-ecostj_c = zeros(TT,F);        
-scrapj_c = zeros(TT,F);
+ecostj_c = zeros(TT,F);            % entry cost (firm level)       
+scrapj_c = zeros(TT,F);            % scrap value (firm level)
 ecost_c  = zeros(TT,1);            % entry costs
 scrap_c  = zeros(TT,1);            % exit scrap values
 cs_c     = zeros(TT,1);            % consumer surplus
 ps_c     = zeros(TT,1);            % aggregate profits
+psx_c    = zeros(TT,1);            % aggregate profits net of r&d expenditures
 nf_c     = zeros(TT,1);            % # active firms
 rdshock  = zeros(TT,F);            % keep track of r&d shocks
 lbdshock = zeros(TT,F);            % keep track of lbd shocks
-tentry   = NaN(TT,F);            % record entry times
+tentry   = NaN(TT,F);              % record entry times
+jumptype = zeros(TT,1);            % keep track of jump reasons
+emptyind = 0;
 
 % Set initial state.
 in  = (di(2:end)<M+1);             % index of incumbents
@@ -69,6 +72,7 @@ y   = Y(:,w);
 cs        = surplus(par,p(in),p0,d);
 rev       = p(in).*q;
 ps        = sum(pr);
+psx       = ps - sum(x);
 
 % Compute hazards of jumps.
 [hj,sh] = hazz(par,di,q,x,y);
@@ -85,12 +89,12 @@ nf = j;
 
 % Record initial state.
 cs_c(n) = cs;                
-ps_c(n) = ps;                
+ps_c(n) = ps;
+psx_c(n) = psx;
 nf_c(n) = j;                
 p0_c(n) = p0;
 q0_c(n) = q0;
 d_c(n)  = d;
-nf_c(n) = j;
 
 % Store firm-specific values.
 fprod_c(n,id(1:j)) = nextdi(2:j+1);                     % productivity
@@ -112,7 +116,8 @@ end
    
 while t>0 && t<T
     % There's a jump!
-    times_c(n) = t;                   
+    times_c(n) = t; 
+
     % Where to jump?
     % Get transition probabilities conditional on a jump.
     hh = hj./sh;
@@ -123,6 +128,7 @@ while t>0 && t<T
         trans = Q(d0,:);
         [d0,~] = jdraw(trans,drw3(n));
         nextdi(1) = d0;
+        jumptype(n) = 1;
     elseif draw==nj-1
         % Entry event.             
         we = max(nextdi(j+1)-2,1);         % entry draw
@@ -135,6 +141,7 @@ while t>0 && t<T
         ecost_c(n) = par.Phie_lo + drw2(n)*(par.Phie_hi-par.Phie_lo);
         ecostj_c(n,id(j+1)) = ecost_c(n);
         tentry(n:end,id(j+1)) = t;
+        jumptype(n) = 2;
     elseif draw>3*j                        % 1st 2j cells are productivity jumps
         % Exit event.
         ii = draw-3*j;                     % which firm exits
@@ -144,22 +151,26 @@ while t>0 && t<T
         scrap_c(n) = par.Phi_lo + drw2(n)*(par.Phi_hi-par.Phi_lo);
         scrapj_c(n,id(ii)) = scrap_c(n);
         id(ii) = 0;                         % free ID slot
+        jumptype(n) = 3;
     elseif draw>2*j
         % Negative productivity shock.
         ii = draw-2*j;                      % which firm goes down
-        nextdi(ii+1) = nextdi(ii+1)-1;  
+        nextdi(ii+1) = nextdi(ii+1)-1;
+        jumptype(n) = 4;
     elseif draw>j
         % R&D shock.
         ii = draw-j;                        % which firm goes up
         nextdi(ii+1) = nextdi(ii+1)+1; 
         % Update r&d shock tracker.
         rdshock(n,id(ii)) = 1;
+        jumptype(n) = 5;
     else %draw<=j
         % LBD shock.
         ii = draw;                          % which firm goes up
         nextdi(ii+1) = nextdi(ii+1)+1;
         % Update lbd shock tracker.
-        lbdshock(n,id(ii)) = 1;        
+        lbdshock(n,id(ii)) = 1;
+        jumptype(n) = 6;
     end
     
     % Sort new state.
@@ -168,12 +179,10 @@ while t>0 && t<T
     id     = temp(:,2);              
        
     % Update everything.
-    in = (nextdi(2:end)<M+1);  
+    in = (nextdi(2:end)<M+1);
     j  = sum(in);
     if j==0
-        disp('WARNING: empty industry.');
-        flag=1;
-        break
+        emptyind = 1;
     end
     w  = encode(nextdi,binom,N,D);
     p  = P(:,w);
@@ -188,12 +197,12 @@ while t>0 && t<T
     cs        = surplus(par,p(in),p0,d);
     rev       = p(in).*q;
     ps        = sum(pr);
-
-    [hj,sh] = hazz(par,nextdi,q,x,y);
+    psx       = ps-sum(x);
     
     % Record aggregate outcomes.
     cs_c(n) = cs;                      % consumer surplus
     ps_c(n) = ps;                      % aggregate profits
+    psx_c(n)= psx;                     % aggregate profits
     nf_c(n) = j;                       % # of active firms
     p0_c(n) = p0;                      % outside good price
     q0_c(n) = q0;                      % outside good quantity
@@ -207,8 +216,11 @@ while t>0 && t<T
     rev_c(n,id(1:j)) = rev(1:j);
     pij_c(n,id(1:j)) = pr(1:j);                     % profits
     mgc_c(n,id(1:j)) = mgc(nextdi(2:j+1));          % marginal cost
+      
+    % Get hazards under new industry structure.
+    [hj,sh] = hazz(par,nextdi,q,x,y);
     
-    % New jump
+    % New index for draw.
     n = n + 1;
     if sh>0
         t = t - log(drw1(n))/sh;
@@ -246,7 +258,7 @@ out.ecostj = ecostj_c(1:n-1,1:nf);
 out.scrapj = scrapj_c(1:n-1,1:nf);
 out.cs     = cs_c(1:n-1,:);
 out.ps     = ps_c(1:n-1,:);
-out.nf     = nf_c(1:n-1,:);
+out.psx    = psx_c(1:n-1,:);
 out.d      = d_c(1:n-1,:);
 out.nfvec  = nf_c(1:n-1,:);
 out.nf     = nf;
@@ -254,8 +266,8 @@ out.rdshock  = rdshock(1:n-1,1:nf);
 out.lbdshock = lbdshock(1:n-1,1:nf);
 out.n      = n-1;
 out.flag   = flag;
-
-
+out.empty  = emptyind;
+out.jump   = jumptype(1:n-1);
 end
 
 
@@ -279,7 +291,7 @@ end
 %% Compute consumer surplus.
 function cs = surplus(par,p,p0,d)
 
-cs = d*(1/par.alpha)*log(sum(exp(-par.alpha*p))+exp(-par.alpha*p0));
+cs = d*(1/par.alpha)*log(1+sum(exp(-par.alpha*p))+exp(-par.alpha*p0));
 
 end
 
@@ -290,21 +302,28 @@ function [hj,sh] = hazz(par,di,q,x,y)
 % of a jump in the state of the industry due to any shock. 
 % Note: hazard vectors are all column vectors.
 
-in1 = (di(2:end)==par.M);
-in2 = (di(2:end)==1);
-in3 = (di(2:end)<par.M+1);
-en  = find(di(2:end)==par.M+1,1);
+in1 = (di(2:end)==par.M);               % can't increase productivity.
+in2 = (di(2:end)==1);                   % can't decrease productivity.
+in3 = find(di(2:end)<par.M+1,1,'last'); % # of active firms.
+en  = find(di(2:end)==par.M+1,1);       % entrant location.
 
-h1 = (par.eta1*q)./(1+par.eta1*q);          % learning hazard
+% LBD hazard.
+h1 = par.eta1*q.^par.eta2;
+% h1 = (par.eta1*q)./(10+par.eta1*q);          
 h1(in1) = 0;
-h2 = par.alpha1*x(in3).^par.alpha2;         % r&d hazard
+% R&D hazard.
+h2 = par.alpha1*x(1:in3).^par.alpha2;
+% h2 = par.alpha2*x(1:in3)./(1+par.alpha2*x(1:in3));  
 h2(in1)= 0;
-h3 = ones(sum(in3),1)*par.delta;            % negative prod. shock hazard
+% Negative prod. shock hazard.
+h3 = ones(in3,1)*par.delta;            
 h3(in2) = 0;
-h4 = par.etax1*y(in3);                      % exit hazard
-h5 = par.etae1*y(en);                       % entry hazard
-h6 = par.gamma;                             % aggregate shock hazard 
-
+% Exit hazard.
+h4 = par.etax1*y(in3);   
+% Entry hazard.
+h5 = par.etae1*y(en);                  
+% Aggregate shock hazard.
+h6 = par.gamma;                              
 
 if isempty(h1) 
     h1=zeros(in3,1);
