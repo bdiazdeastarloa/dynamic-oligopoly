@@ -15,7 +15,7 @@ function [aggdata,paneldata] = sim_disc(par,outc,T)
 
 if outc.flag==1
     aggdata = ones(T,14);
-    paneldata = ones(T*outc.nf,19);
+    paneldata = ones(T*outc.nf,20);
     ff        = repmat((1:outc.nf)',T,1);
     paneldata = [ff paneldata];
 else
@@ -38,6 +38,7 @@ else
     scrapj_c= outc.scrapj;
     cs_c    = outc.cs;
     ps_c    = outc.ps;
+    psx_c   = outc.psx;
     d_c     = outc.d;
     nfvec   = outc.nfvec;
     rd_c    = outc.rdshock;
@@ -51,8 +52,9 @@ else
     q0     = zeros(T,1);        % imported quantities
     sh0    = zeros(T,1);        % imports share
     d      = zeros(T,1);        % demand
-    cs     = zeros(T,1);        % discounted consumer surplus
-    ps     = zeros(T,1);        % discounted aggregate profits
+    cs     = zeros(T,1);        % consumer surplus
+    ps     = zeros(T,1);        % aggregate profits
+    psx    = zeros(T,1);        % aggregate profits net of R&D
     scrap  = zeros(T,1);        % total scrap value
     ecost  = zeros(T,1);        % total entry costs
 
@@ -72,14 +74,14 @@ else
     paneldata = [];
     FT        = cell(1,nf);
     for j=1:nf 
-        FT{j} = zeros(T,17);     % Create holder for each firm
-        FT{j}(:,1) = j;                 
-        FT{j}(:,2) = (1:1:T); 
+        FT{j} = zeros(T,21);     % Create holder for each firm
+        FT{j}(:,1) = j;          % Firm id       
+        FT{j}(:,2) = (1:1:T);    % Time period
     end
 
     % Replace productivity indices with their values.
     fprod_c((fprod_c==0))= par.M+1;
-    temp = [par.w 0];
+    temp = [par.w 0]';
     fprod_c = temp(fprod_c);
 
 
@@ -97,9 +99,11 @@ else
                 ff(t) = nfvec(1);
                 p0(t) = p0_c(1);
                 q0(t) = q0_c(1);
-                sh(t) = q0_c(1)/d_c(1);
+                d(t)  = d_c(1);
+                sh0(t) = q0_c(1)/d_c(1);
                 cs(t) = cs_c(1);
                 ps(t) = ps_c(1);
+                psx(t) = psx_c(1);
 
                 w(t,:)   = par.w(fprod_c(1,:));          
                 q(t,:)   = q_c(1,:);
@@ -116,12 +120,14 @@ else
                 ff(t) = ff(t-1);
                 p0(t) = p0(t-1);
                 q0(t) = q0(t-1);
-                sh(t) = sh(t-1);
-                cs(t) = cs(t-1).*exp(-par.rho);
-                ps(t) = ps(t-1).*exp(-par.rho);
+                d(t)  = d(t-1);
+                sh0(t) = sh0(t-1);
+                cs(t) = cs(t-1);
+                ps(t) = ps(t-1);
+                psx(t) = psx(t-1);
 
-                % Adjust for firm exiting in last jump.
-                ex_in = (scrapj(t-1,1:nf)>0);             
+                % Adjust if there was exit in last jump, last period.
+                ex_in = (scrapj(t-1,1:nf)>0);   % which firms exited: they have zero everything.           
                 w(t,ex_in)   = 0;
                 q(t,ex_in)   = 0;        
                 rev(t,ex_in) = 0;
@@ -131,7 +137,7 @@ else
                 mgc(t,ex_in) = 0;
                 sh(t,ex_in)  = 0;
 
-                cont_in = (ex_in==0);
+                cont_in = (ex_in==0);           % which firms continued: same as last.
                 w(t,cont_in)   = w(t-1,cont_in);
                 q(t,cont_in)   = q(t-1,cont_in);        
                 rev(t,cont_in) = rev(t-1,cont_in);
@@ -141,7 +147,7 @@ else
                 mgc(t,cont_in) = mgc(t-1,cont_in);
                 sh(t,cont_in)  = sh(t-1,cont_in);
 
-                % Adjust for firm entering in last jump.
+                % Adjust if there was entry in last jump, last period.
                 % (Do not duplicate entry cost.)
                 e_in = (ecostj(t-1,1:nf)>0);                   
                 ecostj(t,e_in) = 0;                   
@@ -150,14 +156,13 @@ else
         else 
             % There was a jump.        
             % Weighted (integrated) variables.
-            if t==1      % t_lag=0 for t=1, cannot index with 0
+            if t==1      % t_lag=0 for t=1, cannot index with 0.
                 weight = [times_c(t_lag+2:t_ind);t] - times_c(t_lag+1:t_ind);
                 p0(t)  = weight'*p0_c(t_lag+1:t_ind);
                 q0(t)  = weight'*q0_c(t_lag+1:t_ind);
                 cs(t)  = weight'*cs_c(t_lag+1:t_ind);
                 ps(t)  = weight'*ps_c(t_lag+1:t_ind);
-                cs(t)  = weight'*cs_c(t_lag+1:t_ind);
-                ps(t)  = weight'*ps_c(t_lag+1:t_ind);
+                psx(t) = weight'*psx_c(t_lag+1:t_ind);
                 d(t)   = weight'*d_c(t_lag+1:t_ind);
                 sh0(t) = q0(t)/d(t);
 
@@ -184,6 +189,7 @@ else
                 q0(t)  = weight'*q0_c(t_lag:t_ind);
                 cs(t)  = weight'*cs_c(t_lag:t_ind);
                 ps(t)  = weight'*ps_c(t_lag:t_ind);
+                psx(t) = weight'*psx_c(t_lag:t_ind);
                 d(t)   = weight'*d_c(t_lag:t_ind);
                 sh0(t) = q0(t)/d(t);
 
@@ -206,8 +212,14 @@ else
                 end
             end
             
-            % Non-weighted variables   
-            ff(t)    = max(nfvec(t_lag+1:t_ind));
+            % Non-weighted variables.
+            % Start from t_lag since the period starts with last period's
+            % last jump # of firms.
+            if t==1
+                ff(t)    = max(nfvec(t_lag+1:t_ind));
+            else
+                ff(t)    = max(nfvec(t_lag:t_ind));
+            end
             exit(t)  = sum(exit_c(t_lag+1:t_ind));
             entry(t) = sum(entry_c(t_lag+1:t_ind));
             scrap(t) = sum(scrap_c(t_lag+1:t_ind));
@@ -219,23 +231,24 @@ else
             scrapj(t,:) = sum(scrapj_c(t_lag+1:t_ind,:));
             rd(t,:) = sum(rd_c(t_lag+1:t_ind,:));
             lbd(t,:) = sum(lbd_c(t_lag+1:t_ind,:));
-            % Update time period tracker.
+            
+            % Update starting point for time period tracker.
             t_lag = t_ind;
 
             % Store firm-level data in cells.
             for j = 1:nf         
-                FT{j}(t,3)  = w(t,j);
-                FT{j}(t,4)  = p(t,j);
-                FT{j}(t,5)  = x(t,j);
-                FT{j}(t,6)  = q(t,j);
-                FT{j}(t,7)  = rev(t,j);
-                FT{j}(t,8)  = pij(t,j);
-                FT{j}(t,9)  = mgc(t,j);
-                FT{j}(t,10) = sh(t,j);
-                FT{j}(t,11) = ecostj(t,j) ;
-                FT{j}(t,12) = scrapj(t,j);
-                FT{j}(t,13) = rd(t,j);
-                FT{j}(t,14) = lbd(t,j);
+                FT{j}(t,3)  = w(t,j);                   % productivity
+                FT{j}(t,4)  = p(t,j);                   % firm price
+                FT{j}(t,5)  = x(t,j);                   % R&D investment
+                FT{j}(t,6)  = q(t,j);                   % firm quantities
+                FT{j}(t,7)  = rev(t,j);                 % firm revenues
+                FT{j}(t,8)  = pij(t,j);                 % firm profits
+                FT{j}(t,9)  = mgc(t,j);                 % marginal cost
+                FT{j}(t,10) = sh(t,j);                  % firm market share
+                FT{j}(t,11) = ecostj(t,j) ;             % entry cost
+                FT{j}(t,12) = scrapj(t,j);              % scrap value
+                FT{j}(t,13) = rd(t,j);                  % R&D jumps
+                FT{j}(t,14) = lbd(t,j);                 % LBD jumps
             end
         end % if t_ind == t_lag
     end % for t=1:T
@@ -255,6 +268,16 @@ else
         temp = 1:1:T;
         FT{j}(:,19) = p0(temp(active));                 % foreign price
         FT{j}(:,20) = [NaN(1); FT{j}(1:end-1,19)];      % lagged foreign price
+        FT{j}(:,21) = [NaN(1); FT{j}(1:end-1,5)];       % lagged R&D
+        
+        FT{j}(:,22) = cumsum(FT{j}(:,6));               % cumulative shipments
+        FT{j}(:,23) = cumsum(FT{j}(:,5));               % cumulative r&d
+        
+        if size(FT{j}(:,1),1)<2
+            FT{j}(:,22) = NaN;
+        else
+            FT{j}(:,22) = [NaN(2,1); FT{j}(1:end-2,6)];     % lagged 2 shipments
+        end
 
         % Panel data with simulated variables.
         paneldata = [paneldata; FT{j}];                  %#ok
@@ -263,34 +286,43 @@ else
     %% Construct aggregate data.
 
     % Selected firm outcomes.
-    w = zeros(T,1);
+    w       = zeros(T,1);
     avprice = zeros(T,1);
-    c2 = zeros(T,1);
-    avrd = zeros(T,1);
-    totrd = zeros(T,1);
-    avmgc = zeros(T,1);
+    c2      = zeros(T,1);
+    avrd    = zeros(T,1);
+    totrd   = zeros(T,1);
+    avmgc   = zeros(T,1);
+    rdjump  = zeros(T,1);
+    lbdjump = zeros(T,1);
     
-    w_temp = sortrows([paneldata(:,2),paneldata(:,3)],1);
-    avprice_temp = sortrows([paneldata(:,2),paneldata(:,4)],1);          
-    c2_temp = sortrows([paneldata(:,2),paneldata(:,10)],[1 -2]);     % sort by decreasing share
-    x_temp = sortrows([paneldata(:,2),paneldata(:,5)],1);
-    mgc_temp = sortrows([paneldata(:,2),paneldata(:,9)],1);
-    
-    for t = 1:T
-        % Average productivity (unweighted).
-        w(t) = mean(w_temp(w_temp(:,1)==t,2));     
-        % Average prices.
-        avprice(t) = mean(avprice_temp(avprice_temp(:,1)==t,2));   
-        % Concentration (C2 index).
-        temp = c2_temp(c2_temp(:,1)==t,2);            
-        c2(t) = sum(temp(1:min(size(temp,1),2))); 
-        % Average and total R&D.
-        avrd(t) = mean(x_temp(x_temp(:,1)==t,2));
-        totrd(t) = sum(x_temp(x_temp(:,1)==t));
-        % Average marginal cost.
-        avmgc(t) = mean(mgc_temp(mgc_temp(:,1)==t,2));
+    if nf>0
+        w_temp       = sortrows([paneldata(:,2),paneldata(:,3)],1);
+        avprice_temp = sortrows([paneldata(:,2),paneldata(:,4)],1);          
+        c2_temp      = sortrows([paneldata(:,2),paneldata(:,10)],[1 -2]);     % sort by decreasing share
+        x_temp       = sortrows([paneldata(:,2),paneldata(:,5)],1);
+        mgc_temp     = sortrows([paneldata(:,2),paneldata(:,9)],1);
+        rdjump_temp  = sortrows([paneldata(:,2),paneldata(:,13)],1);
+        lbdjump_temp = sortrows([paneldata(:,2),paneldata(:,14)],1);
+
+        for t = 1:T
+            % Average productivity (unweighted).
+            w(t) = mean(w_temp(w_temp(:,1)==t,2));     
+            % Average prices.
+            avprice(t) = mean(avprice_temp(avprice_temp(:,1)==t,2));   
+            % Concentration (C2 index).
+            temp = c2_temp(c2_temp(:,1)==t,2);            
+            c2(t) = sum(temp(1:min(size(temp,1),2))); 
+            % Average and total R&D.
+            avrd(t) = mean(x_temp(x_temp(:,1)==t,2));
+            totrd(t) = sum(x_temp(x_temp(:,1)==t));
+            % Average marginal cost.
+            avmgc(t) = mean(mgc_temp(mgc_temp(:,1)==t,2));
+            % # of RD and LBD jumps.
+            rdjump(t) = mean(rdjump_temp(rdjump_temp(:,1)==t,2));
+            lbdjump(t) = mean(lbdjump_temp(lbdjump_temp(:,1)==t,2));
+        end
     end
 
-    % Aggregate simulated variables
-    aggdata = [ff,entry,exit,cs,ps,scrap,ecost,p0,q0,sh0,d,w,avprice,c2,avrd,totrd,avmgc];
+    % Aggregate simulated variables.
+    aggdata = [ff,entry,exit,cs,ps,psx,scrap,ecost,p0,q0,sh0,d,w,avprice,c2,avrd,totrd,avmgc,rdjump,lbdjump];
 end

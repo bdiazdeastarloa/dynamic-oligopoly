@@ -1,3 +1,5 @@
+%function [par] = setpar(counter)
+
 % =========================================================================
 % Dynamic oligopoly.
 % Continuous time version.
@@ -15,26 +17,25 @@ N   = 8;                                         % max # of firms
 rho = -log(0.925);                               % discount rate
 
 % Produtivity.
-w = [1 2 2.8 3.5 4.2 6];                         % productivity vector
-%w = [1 2.3 3.6 5 8.1 11.5];
+% w = [1 2 4 8 16 25];                            % productivity vector
+w = [1 1.9 3.7 7.6 14.5 19.7];                   % productivity vector
 M = size(w,2);                                   % # of productivity states
 ie0 = 3;                                         % productivity level at entry (fixed case)
 
-% Estimate import price process.
-% gamma: hazard rate of a jump. 
-% p0vec: grid.
-% Q: intensity matrix.
-load pfor_data;                                  % load imported price series
-%[~,pfor,Qp] = p0process(pfor_data,2);           % estimate imported price process 
-[~,pfor,Qp] = p0process_alt(pfor_data,2);       % ad-hoc calibration of imported price process
-% p0vec  = 2.3;
-% Qp     = 0;
-p0size = size(pfor,1);                          % # of imported price states 
-if counter==1                                    % countefactual 1:
+% Load calibrated import price process:
+% g: hazard rate of a jump. 
+% pforgrid: grid.
+% Q: transition matrix (not intensity!).
+load 'pfor_calibration.mat';                     % load foreign price process
+pfor = p0grid;
+g    = g(1);
+p0size = size(pfor,1);                           % # of imported price states
+if counter==1                                    % counterfactual 1:
     tariff = 0.3;                                % 30% tariffs
     pfor  = (1+tariff)*pfor;     
 end
-clear pfor_data;
+% Intensity matrix (using transitions matrix).
+Qp = Q*g;
 
 % Demand.
 % mkt = [100 160 220];                          
@@ -54,16 +55,17 @@ for i=1:dsize
     i2 = i1+p0size-1;
     trans(i1:i2,i1:i2) = Qp;
 end
+clear i i1 i2
+
 % Hazard of an aggregate shock (sum of a row of 'trans').
 gamma = sum(trans,2);
 gamma = gamma(1);
 
 % Technology.
-beta = -1;                                       % slope of learning curve
 if counter==2                                    % counterfactual 2:                    
     c0 = 0.8*c0;                                 % 20% reduction in marginal cost
 end
-mgc = (c0*w.^beta)';                             % marginal cost schedule
+mgc = (c0*w.^(-beta))';                             % marginal cost schedule
 
 % Contraction routine settings
 method = 'GaussSeidel';
@@ -72,7 +74,7 @@ lambdax = 0.9;                                   % dampening factor: investment 
 lambdap = 0.9;                                   % dampening factor: pricing policy   
 lambday = 0.9;                                   % dampening factor: exit/entry policies   
 maxiter = 500;                                   % max # of iterations
-tol     = 1e-4;                                  % tolerance
+tol     = 1e-5;                                  % tolerance
 steps = 0;                                       % # steps in modified policy iteration.
 
 
@@ -112,10 +114,11 @@ end
 % (This is the cartesian product of the indices.)
 [agg1,agg2] = meshgrid((1:dsize),(1:p0size));
 agg = [agg1(:) agg2(:)];
+clear agg1 agg2
 
 
 %% Declare variables names.
-%{
+
 % Declare variable names to save.
 % NOTE: This is a vector of strings, not mat files.
 vars = [
@@ -129,6 +132,7 @@ vars = [
         ' dsize ', ...					% Common state: # of domestic demand values.
         ' mkt ',...                     % Common state: domestic demand values.
         ' pfor ',...                    % Common state: foreign price values.
+        ' gamma ',...                   % Common state: jump rate.
         ' mgc ',...                     % Marginal cost values (for each productivity level).
         ' trans ', ...					% Transition rates: common state.
         ' binom ',...                   % State space encoding: binomial table.
@@ -155,15 +159,8 @@ vars = [
         ' lambdax ', ...                % Program control: Weight of updated investment policy.
         ' lambdap ', ...                % Program control: Weight of updated pricing policy.
         ' lambday ', ...                % Program control: Weight of updated entry/exit policy.
-        ' V0 ', ...						% Starting values: Value function.
-        ' x0 ', ...						% Starting values: Investment policy.
-        ' p0 ',...                      % Starting values: Pricing policy.
-        ' y0 '                          % Starting values: Entry/exit policy.
         ];
 
-% File name for this industry structure.
-mexinp = sprintf('ind_N%dM%dD%d.mat',[N,M,D]);
-%}
 
 %% Create parameter structure to pass to solver and simulations.
 
@@ -213,3 +210,7 @@ par.lambdax = lambdax;
 par.lambdap = lambdap;
 par.lambday = lambday;
 par.method = method;
+
+% Clear variables.
+eval(['clear ',vars]);
+clear w Qp Qd agg beta c0 filename

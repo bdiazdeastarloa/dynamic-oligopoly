@@ -16,7 +16,6 @@ np = zeros(N,S);
 nv = zeros(N,S);
 
 for s = 1:S
-    
     % Obtain unique state.
     di = state(:,s);
     
@@ -33,20 +32,25 @@ for s = 1:S
         pars.c  = c;
         pars.p0 = p0;
         pars.a  = alpha;
+        pstart = 20*ones(Nstar,1);
         if usedogleg
             MaxIter = 400; TolFun = 1e-6; TolX = 1e-6; 
             options = [1,TolFun,TolX,TolFun,MaxIter,1e-6];
-            [pstar,info] = SDogLeg('foc_static',pars,c,options);
-            if info(6)>3
+            [pstar,info1] = SDogLeg('foc_static',pars,pstart,options);
+            if info1(6)>3 || isempty(find(pstar<0,1))==0
                 warning('There is a problem with SDogLeg!');
-                pause
+                display(['At state ', int2str(s)]);
             end
         else
-            options = optimset('Display','iter');
-            [pstar,~,exitflag] = fsolve('foc_static',c,options,pars);
+            options = optimset('Display','none');
+            [pstar,~,exitflag] = fsolve('foc_static',pstart,options,pars);
+            if exitflag<=0
+                pstart = 20*ones(Nstar,1);
+                [pstar,~,exitflag] = fsolve('foc_static',pstart,options,pars);
+            end
             if exitflag<=0
                 warning('There is a problem with fsolve!');
-                pause
+                display(['At state ', int2str(s)]);
             end
         end
         
